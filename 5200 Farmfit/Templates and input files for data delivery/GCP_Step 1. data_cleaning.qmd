@@ -1,0 +1,1929 @@
+---
+title: "Step 1. Cleaning"
+format: html
+editor: visual
+---
+
+```{r setup, include=FALSE}
+rm(list = ls(), envir = .GlobalEnv)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This script is developed to clean data from GCP cases in a standardized way.
+
+### Preparation
+
+Load the necessary packages.
+
+```{r, include = FALSE}
+library(here); library(readxl); library(openxlsx);
+library(plyr); library(dplyr); library(tidyr); library(tidylog); library(tidyselect)
+library(stringr); library(data.table); library(reshape2)
+library(zoo);library(splitstackshape) ;library(tidyverse); library(magrittr) ; library(haven); library(writexl)
+```
+
+Prepare the colors of GCP
+
+```{r}
+yellow <- "#f9ad3c"
+light_grey <- "#eae5d3"
+light_brown <- "#c15348"
+green <- "#78d64b"
+red <-"#cc3d3b"
+black <- "#000000"
+brown <- "#7c4d3a"
+```
+
+Make a new Github map with the project name where this R Markdown file is stored, together with the raw data and the survey form downloaded. Fill in the right file names in the code below so the variables data_filename and survey_filename refer to the correct file.
+
+```{r}
+data_filename <- "GCP_data_collection_for_brasil_arabica.xlsx" 
+survey_filename <- "GCP_Brazil_survey_08102024.xlsx"
+vars_transformed <- read_excel("variables with transformation_2.xlsx") #describes the possible calculated variables
+```
+
+Describe the files that will be created in the script here.
+
+```{r}
+#Fill in the basic case information.
+case = "GCP"
+year = "2024"
+commodity = "coffee_arabica_conillon"
+country = "Brazil"
+
+```
+
+We read the data downloaded. The below is for a KOBO format
+
+```{r, include = FALSE}
+# Data for transformation
+Data <- read_excel(data_filename, sheet = "GCP data collection for Brasil")
+Data_activities <- read_excel(data_filename, sheet = "questions_activities")
+Data_labour <- read_excel(data_filename, sheet = "hh_labour")
+
+# Read file with survey structure
+survey_questions <- read_excel((survey_filename), sheet ="survey")
+questions_choices <- read_excel ((survey_filename), sheet ="choices")
+
+#Import conilon data to merge with the main dataset
+Data2<- read_excel("GCP_data_collection_for_brasil_conilon.xlsx", sheet = "Data collection Brazil - Con...")
+Data_activities2 <- read_excel("GCP_data_collection_for_brasil_conilon.xlsx", sheet = "questions_activities")
+Data_labour2 <- read_excel("GCP_data_collection_for_brasil_conilon.xlsx", sheet = "hh_labour")
+```
+
+missing values from first version: fill enumerator feedbacks
+
+```{r, include = FALSE}
+uuid_to_replace = c("de3720d0-51d1-4f4c-990d-4c1d0d5705c5", "f6afd37b-6c46-4917-a8d3-bc0ff88b9371", "c628f514-2650-4e41-b6c5-0b59ca21a7ed", "986a3c7c-47a0-4f9c-a214-44dc339dba60", "155f2b49-a6ca-4316-8dfd-bb1497269c90")
+Data <- Data %>%
+  mutate(f_percentage_coffee_varieties_resistant = ifelse(`_uuid` %in% uuid_to_replace, 0, f_percentage_coffee_varieties_resistant),
+         f_focus_measurement_prod_2023 = ifelse(`_uuid` %in% uuid_to_replace, "60 kgs bag", f_focus_measurement_prod_2023),
+         f_focus_measurement_sold_2023 = ifelse(`_uuid` %in% uuid_to_replace, "60 kgs bag", f_focus_measurement_sold_2023),
+         f_focus_labour_costs_season_per_hectare = ifelse(`_uuid` %in% uuid_to_replace, 9999, f_focus_labour_costs_season_per_hectare),
+         f_inputs_costs_insect_season_per_hectare = ifelse(`_uuid` %in% uuid_to_replace, 9999, f_inputs_costs_insect_season_per_hectare),
+         f_inputs_costs_irrigation_season_per_hectare = ifelse(`_uuid` %in% uuid_to_replace, 9999, f_inputs_costs_irrigation_season_per_hectare),
+         f_inputs_costs_biological_control_season_per_hectare = ifelse(`_uuid` %in% uuid_to_replace, 9999, f_inputs_costs_biological_control_season_per_hectare),
+         f_inputs_costs_other_season_per_hectare = ifelse(`_uuid` %in% uuid_to_replace, 9999, f_inputs_costs_other_season_per_hectare),
+         f_soil_cover_crops_observation = ifelse(`_uuid` %in% uuid_to_replace, "No", f_soil_cover_crops_observation),
+         f_soil_weed_observation = ifelse(`_uuid` %in% uuid_to_replace, "No", f_soil_weed_observation),
+         f_soil_fertility_observation = ifelse(`_uuid` %in% uuid_to_replace, "No", f_soil_fertility_observation),
+         f_soil_organic_observation = ifelse(`_uuid` %in% uuid_to_replace, "No", f_soil_organic_observation),
+          f_soil_agrochemicals_observation = ifelse(`_uuid` %in% uuid_to_replace, "No", f_soil_agrochemicals_observation),
+          f_soil_preservation_areas_observation = ifelse(`_uuid` %in% uuid_to_replace, "No", f_soil_preservation_areas_observation),
+         f_water_use_observation = ifelse(`_uuid` %in% uuid_to_replace, "No", f_water_use_observation),
+         f_wastewater_management_observation = ifelse(`_uuid` %in% uuid_to_replace, "No", f_wastewater_management_observation),
+         f_soil_fertility_testing = ifelse(`_uuid` %in% uuid_to_replace, "Yes", f_soil_fertility_testing),
+         f_soil_fertility_testing_freq = ifelse(`_uuid` %in% uuid_to_replace, "Once a year", f_soil_fertility_testing_freq),
+         f_soil_fertility_testing_depth = ifelse(`_uuid` %in% uuid_to_replace, "at 20-40 cm", f_soil_fertility_testing_depth),
+         f_soil_bio_analysis = ifelse(`_uuid` %in% uuid_to_replace, "No", f_soil_bio_analysis),
+          f_trees_yes_no = ifelse(`_uuid` %in% uuid_to_replace, "No", f_trees_yes_no),
+         f_trees_regenerative_practices = ifelse(`_uuid` %in% uuid_to_replace, "Planting cover crops", f_trees_regenerative_practices),
+          f_farmer_organisation_yn = ifelse(`_uuid` %in% uuid_to_replace, "Yes", f_farmer_organisation_yn),
+          f_farmer_organisation = ifelse(`_uuid` %in% uuid_to_replace, "Comexim", f_farmer_organisation))
+
+Data <- Data %>%
+  mutate(f_coffee_tree_area_age_0_to_4=ifelse(`_uuid`== "de3720d0-51d1-4f4c-990d-4c1d0d5705c5", 5, 
+                                              ifelse(`_uuid`== "f6afd37b-6c46-4917-a8d3-bc0ff88b9371", 0,
+                                                     ifelse(`_uuid`== "c628f514-2650-4e41-b6c5-0b59ca21a7ed", 0,
+                                                            ifelse(`_uuid`== "986a3c7c-47a0-4f9c-a214-44dc339dba60", 0,
+                                                                   ifelse(`_uuid`== "155f2b49-a6ca-4316-8dfd-bb1497269c90", 2, f_coffee_tree_area_age_0_to_4))))),
+         f_coffee_tree_area_age_5_to_10=ifelse(`_uuid`== "de3720d0-51d1-4f4c-990d-4c1d0d5705c5", 0, 
+                                              ifelse(`_uuid`== "f6afd37b-6c46-4917-a8d3-bc0ff88b9371", 0,
+                                                     ifelse(`_uuid`== "c628f514-2650-4e41-b6c5-0b59ca21a7ed", 0,
+                                                            ifelse(`_uuid`== "986a3c7c-47a0-4f9c-a214-44dc339dba60", 0,
+                                                                   ifelse(`_uuid`== "155f2b49-a6ca-4316-8dfd-bb1497269c90", 13, f_coffee_tree_area_age_5_to_10))))),
+         f_coffee_tree_area_age_11_to_20=ifelse(`_uuid`== "de3720d0-51d1-4f4c-990d-4c1d0d5705c5", 0, 
+                                              ifelse(`_uuid`== "f6afd37b-6c46-4917-a8d3-bc0ff88b9371", 8,
+                                                     ifelse(`_uuid`== "c628f514-2650-4e41-b6c5-0b59ca21a7ed", 0,
+                                                            ifelse(`_uuid`== "986a3c7c-47a0-4f9c-a214-44dc339dba60", 6.7,
+                                                                   ifelse(`_uuid`== "155f2b49-a6ca-4316-8dfd-bb1497269c90", 0, f_coffee_tree_area_age_11_to_20))))),
+         f_coffee_tree_area_age_21_to_30=ifelse(`_uuid`== "de3720d0-51d1-4f4c-990d-4c1d0d5705c5", 43, 
+                                              ifelse(`_uuid`== "f6afd37b-6c46-4917-a8d3-bc0ff88b9371", 9,
+                                                     ifelse(`_uuid`== "c628f514-2650-4e41-b6c5-0b59ca21a7ed", 3,
+                                                            ifelse(`_uuid`== "986a3c7c-47a0-4f9c-a214-44dc339dba60", 0,
+                                                                   ifelse(`_uuid`== "155f2b49-a6ca-4316-8dfd-bb1497269c90", 0, f_coffee_tree_area_age_21_to_30))))),
+         f_coffee_tree_area_age_30plus=ifelse(`_uuid`== "de3720d0-51d1-4f4c-990d-4c1d0d5705c5", 10, 
+                                              ifelse(`_uuid`== "f6afd37b-6c46-4917-a8d3-bc0ff88b9371", 0,
+                                                     ifelse(`_uuid`== "c628f514-2650-4e41-b6c5-0b59ca21a7ed", 0,
+                                                            ifelse(`_uuid`== "986a3c7c-47a0-4f9c-a214-44dc339dba60", 0,
+                                                                   ifelse(`_uuid`== "155f2b49-a6ca-4316-8dfd-bb1497269c90", 1, f_coffee_tree_area_age_30plus))))),
+         f_focus_quant_prod_2023=ifelse(`_uuid`== "de3720d0-51d1-4f4c-990d-4c1d0d5705c5", 700, 
+                                              ifelse(`_uuid`== "f6afd37b-6c46-4917-a8d3-bc0ff88b9371", 340,
+                                                     ifelse(`_uuid`== "c628f514-2650-4e41-b6c5-0b59ca21a7ed", 108,
+                                                            ifelse(`_uuid`== "986a3c7c-47a0-4f9c-a214-44dc339dba60", 140,
+                                                                   ifelse(`_uuid`== "155f2b49-a6ca-4316-8dfd-bb1497269c90", 350, f_focus_quant_prod_2023))))),
+         f_focus_quant_sold_2023=ifelse(`_uuid`== "de3720d0-51d1-4f4c-990d-4c1d0d5705c5", 700, 
+                                              ifelse(`_uuid`== "f6afd37b-6c46-4917-a8d3-bc0ff88b9371", 630,
+                                                     ifelse(`_uuid`== "c628f514-2650-4e41-b6c5-0b59ca21a7ed", 43,
+                                                            ifelse(`_uuid`== "986a3c7c-47a0-4f9c-a214-44dc339dba60", 80,
+                                                                   ifelse(`_uuid`== "155f2b49-a6ca-4316-8dfd-bb1497269c90", 230, f_focus_quant_sold_2023))))))
+```
+
+Merge Data
+
+```{r}
+#merge data
+Data<- Data %>%
+  mutate(hh_loan_number=as.numeric(hh_loan_number))
+
+Data <- bind_rows(Data, Data2)
+Data_activities <- bind_rows(Data_activities, Data_activities2)
+Data_labour <- bind_rows(Data_labour, Data_labour2)
+
+#raw data
+Data_raw <- Data
+Data_activities_raw <- Data_activities
+Data_labour_raw <- Data_labour
+```
+
+Define functions that will be needed later in the script.
+
+```{r}
+# DATA TYPE: Convert factors to integers
+factor_to_int <- function(x){
+  # Convert factor variables to numeric by first converting to character
+  as.numeric(as.character(x))
+}
+
+# OUTLIER DETECTION: Identify and replace outliers for a numeric vector
+outlier_detection <- function(x) {
+  ifelse(
+    x > (mean(x, na.rm = TRUE) + 3 * sd(x, na.rm = TRUE)) | 
+    x < (mean(x, na.rm = TRUE) - 3 * sd(x, na.rm = TRUE)),
+    9997,  # Replace outliers
+    x       # Keep non-outlier values
+  )
+}
+
+# COUNT NON-NA VALUES: Count the number of non-NA values in a vector
+count_n <- function(x){
+  # Sum the values that are not NA (missing)
+  sum(!is.na(x))
+}
+
+# Suppress scientific notation in numerical outputs
+options(scipen = 999)
+
+# COLLECT NUMERICAL VARIABLES: Identify numerical questions in the survey
+numerical_columns <- survey_questions %>%
+  # Filter for columns where the type is either 'integer' or 'decimal'
+  filter(type == "integer" | type == "decimal") %>%
+  # Select only the 'name' column and pull the values into a vector
+  select("name") %>% pull()
+```
+
+Adjust the survey file to be ready for analysis. We now have a clear overview of the survey questions asked in this case. The below code is for Kobo format
+
+```{r, include = FALSE}
+# SURVEY QUESTION SHEET
+
+survey_questions %<>%
+  # Select relevant columns: type, name, label in English, and relevant
+  select(type, name, `label: English`, `label: Portuguese`, relevant) %>%
+  # Trim any trailing spaces from character columns
+  mutate(across(where(is.character), str_trim)) %>%
+  # Rename "label: English" to a simpler "label"
+  rename(label = `label: English`) %>%
+  # Convert all data to lowercase for consistency
+  mutate(across(everything(), tolower)) %>%
+  # Filter out rows where the 'type' column is missing (empty rows)
+  filter(!is.na(type)) %>%
+  # Filter out rows where the 'label' column is missing (empty rows)
+  filter(!is.na(label)) %>%
+  # Filter out rows where the type is 'note', 'begin_group', or 'begin_repeat'
+  filter(!type %in% c("note", "begin_group", "begin group", "begin_repeat"))
+
+# CHOICES QUESTION SHEET
+questions_choices %<>%
+  # Select relevant columns: list_name, name, label in English, and label in Portuguese
+  select(list_name, name, `label: English`, `label: Portuguese`) %>%
+  # Trim any trailing spaces from character columns
+  mutate(across(where(is.character), str_trim)) %>%
+  # Rename "label: English" to "label" and "list_name" to "choices_name"
+  rename(label = `label: English`, choices_name = list_name) %>%
+  # Convert all data to lowercase for consistency
+  mutate(across(everything(), tolower)) %>%
+  # Filter out rows where the 'choices_name' column is missing (empty rows)
+  filter(!is.na(choices_name))
+```
+
+# Section 1. Cleaning the data
+
+## 1. Rename variables where necessary
+
+```{r, include = FALSE}
+Data <- Data %>%
+  # rename birth year to age
+  rename(cal_hh_farmer_age = "hh_farmer_birthyear") %>%
+  rename(cal_hh_head_age= "hh_head_birthyear") %>%
+  mutate(hh_farmer_birthyear = 2024 - cal_hh_farmer_age,
+         hh_head_birthyear = 2024 - cal_hh_head_age)
+```
+
+check outliers
+
+```{r}
+#Visualise with a boxplot to understand the distribution
+boxplot(Data$cal_hh_farmer_age,
+        ylab="Age of farmer",
+        main="Boxplot of farmers by age",
+        col=red,
+        las=1,
+        cex.lab=1.2,
+        sub="Data source: GCP (2024)"
+)
+
+boxplot(Data$cal_hh_head_age,
+        ylab="Age of farmer",
+        main="Boxplot of age of head of household",
+        col=red,
+        las=1,
+        cex.lab=1.2,
+        sub="Data source: GCP (2024)"
+)
+```
+
+categorisation of age of farmer
+
+```{r}
+#recording in classes for disaggregation, the categories are :  18-34 ; 35-54; 55-74 ; 75-84 ; 85 and above
+Data <- Data %>%
+  mutate(Cal_farmer_age_group = ifelse(cal_hh_farmer_age >= 18 & cal_hh_farmer_age < 35, "18-34 years",
+                            ifelse(cal_hh_farmer_age >= 35 & cal_hh_farmer_age < 55, "35-54 years",
+                                   ifelse(cal_hh_farmer_age >= 55 & cal_hh_farmer_age < 75, "55-74 years",
+                                          ifelse(cal_hh_farmer_age >= 75 & cal_hh_farmer_age < 85, "75-84 years",
+                                                 "85 years and above")))))
+table(Data$Cal_farmer_age_group)
+```
+
+## 2. Standard data cleaning (dates, columns, lowercase, participation, duplicates)
+
+```{r, include = FALSE}
+Data <- Data %>%
+  # Set the date to date format
+  mutate(`_submission_time` = as.Date(`_submission_time`, format = "%d-%m-%Y")) %>%
+  # Remove irrelevant columns
+  select(-c(phonenumber, deviceid, today, username, 
+            `__version__`, `_validation_status`, `_notes`, `_status`, `_submitted_by`, `_tags`, 
+            )) %>%
+  select(-contains("--option--")) %>%
+  # All column names to lowercase
+  rename_all(tolower) %>%
+  # Remove farmers who didn’t participate
+  mutate(farmer_present = na.locf(farmer_present, na.rm = FALSE)) %>%
+  filter(farmer_present != "accepted to participate") %>%
+  # Remove completely empty columns
+  select(where(~ !all(is.na(.)))) %>%
+  #remove variables from old version
+  select(-c(f_coffee_tree_age_0_to_4,	f_coffee_tree_age_5_to_10,	f_coffee_tree_age_11_to_20,	f_coffee_tree_age_21_to_30,	f_coffee_tree_age_30plus,	f_focus_lost_yn,	f_focus_quant_lost,	f_focus_measurement_loss,	f_focus_labour_costs_season, f_inputs_costs_insect_season,	f_inputs_costs_biological_control_season,	f_soil_management_challenges_fertility, starts_with("f_soil_management_challenges_fertility/"), f_farmer_organisation_type))
+
+```
+
+## 3. Other variables
+
+Categorise variable if needed
+
+```{r}
+# Create a new variable to categorize responses into broader categories
+Data <- Data %>%
+  mutate(
+    sust_challenges_other_category = case_when(
+      # No Challenges
+      grepl("Nenhum|Não teve desafios|Não tem desafios|Sem desafios|Nada|não encontrou dificuldades", f_sust_challenges_other, ignore.case = TRUE) ~ "No Challenges",
+      
+      # Operational/Logistical Challenges
+      grepl("mão de obra|tempo|assistência técnica|operacional|mão de obra|equilíbrio|manutenção", f_sust_challenges_other, ignore.case = TRUE) ~ "Operational/Logistical Challenges",
+      
+      # Environmental/Climate Challenges
+      grepl("clima|temperaturas|preconceito|braquiária", f_sust_challenges_other, ignore.case = TRUE) ~ "Environmental/Climate Challenges",
+      
+      # Financial/Economic Challenges
+      grepl("compras de maquinários|achar os insumos|preocupações econômicas", f_sust_challenges_other, ignore.case = TRUE) ~ "Financial/Economic Challenges",
+      
+      # Regulatory and Policy Challenges
+      grepl("não concorda com regulamentação|governo|políticas", f_sust_challenges_other, ignore.case = TRUE) ~ "Regulatory and Policy Challenges",
+
+      # Other/Unspecified
+      TRUE ~ "Other/Unspecified"
+    )
+  )%>%
+  mutate(sust_challenges_other_category = ifelse(is.na(f_sust_challenges_other) | f_sust_challenges_other == ".", NA_character_, sust_challenges_other_category))
+
+```
+
+Identify the "other" variables, and combine the values with their parent. Then the "other" variables are removed.
+
+```{r, include = FALSE}
+variables_other <- Data %>% 
+  select(ends_with("_other"), ends_with("_other2")) %>% 
+  names() 
+
+for(other in variables_other){
+  
+  if(any(names(Data) %in% gsub("_other$|_other2$", "", other))){
+    
+    # Fuzzy match? - many spelling mistakes in "other" questions
+    
+    # Combine "other" variables with their parents
+    Data <- Data %>%
+      unite(!!gsub("_other$|_other2$", "", other), 
+            c(gsub("_other$|_other2$", "", other), all_of(other)), 
+            sep="|", remove=FALSE, na.rm=TRUE) %>%
+      select(-other)
+  }
+}
+```
+
+###Adjust coffee variety
+
+```{r}
+Data <- Data %>%
+   mutate(f_focus_crop_type = ifelse(f_focus_crop_type == "Robusta (conillon) Arabica", "Robusta (conillon)", f_focus_crop_type))
+```
+
+## 4. Adjust farm sizes, household size, and convert birth year to age
+
+```{r}
+ Data <- Data %>%
+   mutate(f_size = ifelse(`_uuid`=="eb7b1baa-8942-4810-a30c-06d89ca7d1cb", 24, f_size))
+
+
+Data <- Data %>%
+  mutate(f_size_hectare = f_size,
+         f_focus_crop_size_hectare = f_focus_crop_size) %>%
+  # Adjust adults figure in household
+  mutate(hh_adults_num = hh_size - hh_children_num)
+
+```
+
+check outliers
+
+```{r}
+#total farm size
+boxplot(Data$f_size,
+        ylab="Size of farm",
+        main="Boxplot of farm size",
+        col=red,
+        las=1,
+        cex.lab=1.2)
+#farm size dedicated to coffee
+boxplot(Data$f_focus_crop_size,
+        ylab="Size of farm",
+        main="Boxplot of farm size dedicated to coffee",
+        col=red,
+        las=1,
+        cex.lab=1.2)
+
+#///without 100ha and above
+Data_bellow100ha <- Data%>%
+  filter(f_size_hectare <100)
+
+boxplot(Data_bellow100ha$f_focus_crop_size,
+        ylab="Size of farm",
+        main="Boxplot of farm size dedicated to coffee (< 100 ha)",
+        col=red,
+        las=1,
+        cex.lab=1.2)
+```
+
+```{r}
+#We will exclude four farmers from the analysis with extremely high farm sizes (>350ha). They are out of scope in this analysis
+# Define the UUIDs to exclude
+excluded_uuids <- c(
+  "e56318c5-52d9-43e1-9be7-c58bada09dbf",
+  "95af4fb3-43e3-4fd9-b72a-15122f48275b",
+  "d3231795-ee26-48bb-b50e-d0a8070f14b8",
+  "1be06f52-a1f0-4b57-829f-7e16a63db0dc"
+)
+
+# Exclude the specified rows from the dataset
+Data <- Data %>%
+  filter(!(`_uuid` %in% excluded_uuids))
+
+```
+
+Categorisation
+
+```{r}
+# from the variable f_focus_crop_size_hectare we need a category type variable for disaggregation
+Data$cal_focus_crop_size_category <- cut(Data$f_focus_crop_size_hectare,
+                                       breaks = c(-Inf, 5, 10, 20, 50, 100, Inf),
+                                       labels = c("[0-5 ha]", "]5-10 ha]", "]10-20 ha]", "]20-50 ha]", "]50-100 ha]", ">100 ha"),
+                                       right = FALSE)
+
+# from the variable f_focus_crop_size_hectare we need a category type variable for disaggregation
+Data$cal_f_size_category <- cut(Data$f_size_hectare,
+                                       breaks = c(-Inf, 5, 10, 20, 50, 100, Inf),
+                                       labels = c("[0-5 ha]", "]5-10 ha]", "]10-20 ha]", "]20-50 ha]", "]50-100 ha]", ">100 ha"),
+                                       right = FALSE)
+```
+
+##Adjust f_coffee_tree_area_age_0_to_4 f_coffee_tree_area_age_5_to_10 f_coffee_tree_area_age_11_to_20 f_coffee_tree_area_age_21_to_30 f_coffee_tree_area_age_30plus
+
+```{r}
+Data <- Data %>%
+  mutate(f_coffee_tree_area_age_21_to_30 = ifelse(`_uuid`%in%c("3ea12929-38d1-4e6f-bf43-a4355c6333fa", "6db21e1c-9a4b-4252-9a23-dc7655f0c602"), f_focus_crop_size, f_coffee_tree_area_age_21_to_30),
+         f_coffee_tree_area_age_30plus = ifelse(`_uuid`%in%c("31a4f6eb-ffe8-4c83-88b9-f5588d96d3e1", "c99aaf54-e99b-49be-8c78-a3d17f191be3"), f_focus_crop_size, f_coffee_tree_area_age_30plus),
+         f_coffee_tree_area_age_5_to_10 = ifelse(`_uuid`%in% c("f5926510-13eb-4cdd-857a-aeb5ea79efa1", "9aa9b51e-ce93-4bf5-8fcf-f57c4198aaaa", "21d51199-d16d-4b4a-a1c7-073740e26e00", "47a5f878-8d38-4ca1-929d-2710f9f7c6d0"), f_focus_crop_size, f_coffee_tree_area_age_5_to_10),
+         f_coffee_tree_area_age_0_to_4 = ifelse(`_uuid`%in%c("46d8bdf3-0226-4f36-9d74-fad908886a11", "f1e2fb0e-4ab7-4cf1-8fc2-331c2f14aad4"), f_focus_crop_size, f_coffee_tree_area_age_0_to_4))
+
+
+uuid_to_replace = c("4515fc00-eca2-4790-afa9-ba5247f5f051", "5e5c5711-e806-4865-904b-a9fed348e281", "6cfe724f-4acb-4714-9056-0f1f967283d9", "f1e2fb0e-4ab7-4cf1-8fc2-331c2f14aad4", "afd699d1-ca85-4e3b-93a7-52360d6f0f83", "4279d072-fe92-4494-b01c-ea7852640144", "9cc1ee9a-7c02-437f-bb31-a5e61f837e88", "1bf20078-4715-4a42-954d-03558da2a07f", "02a2fe5f-d0f1-4f97-81c5-2d901f3b242d", "ff37c335-5056-40ea-88cd-12ae3a60ecf0", "3f1e16af-a26f-4bdf-9317-ee4a5ad48dc3", "3c05901f-101b-4ade-8a4b-13b910c7697c", "bd9d450d-616c-42c2-bb3d-f9f1687d098b", "b43f3fa7-2585-4f6c-af09-4e8482c78c93", "9c973b48-fac1-45e7-a4c2-531264c19ed5", "d88d5a0b-4b1b-4f47-a674-33ad01350337", "3e6319ce-020f-4a27-bfbf-a2f433f96256", "02943430-7a9c-40b7-aa2e-79a4d96ca919", "94d7b7e1-d1e3-443d-ab09-5b3ec0d94bba", "a9a894fc-caa5-41d9-94ab-86fbba9ece6d", "1ce1a967-a160-4129-9162-e2b82d05cfe7", "b56a5cc0-f034-4bd3-a7e2-78a4ef0fdc3c", "56c22071-8a9e-4d51-aa4d-da27d0de167e", "cb3cadac-68cd-4020-882b-4df751efbd69", "3634b622-2088-47f7-b011-b7d90ac91763", "3acb295f-812a-48b2-a0de-708c6b42a85d", "c1d9ddb5-1cf7-4f2e-800d-0156b46cfdc2")
+
+Data <- Data %>%
+  mutate(sum_area_trees= f_coffee_tree_area_age_0_to_4	+ f_coffee_tree_area_age_5_to_10 +	f_coffee_tree_area_age_11_to_20 +	f_coffee_tree_area_age_21_to_30 +	f_coffee_tree_area_age_30plus)%>%
+  mutate(f_coffee_tree_area_age_21_to_30 = ifelse(`_uuid`%in%uuid_to_replace, (f_coffee_tree_area_age_21_to_30/sum_area_trees) * f_focus_crop_size, f_coffee_tree_area_age_21_to_30),
+         f_coffee_tree_area_age_30plus = ifelse(`_uuid`%in%uuid_to_replace, (f_coffee_tree_area_age_30plus/sum_area_trees) * f_focus_crop_size, f_coffee_tree_area_age_30plus),
+         f_coffee_tree_area_age_5_to_10 = ifelse(`_uuid`%in%uuid_to_replace, (f_coffee_tree_area_age_5_to_10/sum_area_trees) * f_focus_crop_size, f_coffee_tree_area_age_5_to_10),
+         f_coffee_tree_area_age_0_to_4 = ifelse(`_uuid`%in%uuid_to_replace, (f_coffee_tree_area_age_0_to_4/sum_area_trees) * f_focus_crop_size, f_coffee_tree_area_age_0_to_4),
+         f_coffee_tree_area_age_11_to_20 = ifelse(`_uuid`%in%uuid_to_replace, (f_coffee_tree_area_age_11_to_20/sum_area_trees) * f_focus_crop_size, f_coffee_tree_area_age_11_to_20)) %>%
+  select(-sum_area_trees)
+```
+
+```{r}
+Data <- Data %>%
+  mutate(cal_farm_size_ratio = ifelse(f_size_hectare == 0, 0, f_focus_crop_size_hectare/f_size_hectare))
+```
+
+## 5. Correct prices, quantities
+
+```{r}
+Data <- Data %>%
+  mutate(f_focus_price = ifelse(`_uuid`=="47a5f878-8d38-4ca1-929d-2710f9f7c6d0", 1175,
+                                ifelse(`_uuid`=="6db21e1c-9a4b-4252-9a23-dc7655f0c602", 1200,f_focus_price)))
+
+
+#calculate median to be used when needed
+median_price<- Data %>%
+   summarize(median_price = median(f_focus_price, na.rm = TRUE))
+#wrong price but enumerator don't remember
+Data <- Data %>%
+  mutate(f_focus_price= ifelse(`_uuid`=="21d51199-d16d-4b4a-a1c7-073740e26e00", median_price$median_price, f_focus_price))
+```
+
+## 6. Specific adjustments for quantities and costs
+
+This is case specific.
+
+```{r}
+  Data <- Data %>%
+    mutate(f_focus_quant_prod = ifelse(`_uuid` =="df4b4aa7-dba4-44e4-9c46-7daae3db6801", 2500,
+                                       ifelse(`_uuid` =="b3f1b249-cd7f-4601-9c5e-139bb77c0d5a", 224,
+                                       f_focus_quant_prod)),
+                      f_focus_quant_sold = ifelse(`_uuid` == "5fdf2061-dbb1-4e95-a4a2-0dacf9aa58cf", 1368, 
+                                       ifelse(`_uuid` == "c628f514-2650-4e41-b6c5-0b59ca21a7ed", 40, f_focus_quant_sold)))
+
+# #quantity sold>prod
+  Data <- Data %>%
+     mutate(f_focus_quant_sold=ifelse(f_focus_quant_prod > 0 & f_focus_quant_sold > f_focus_quant_prod, f_focus_quant_prod, f_focus_quant_sold))
+```
+
+Measurement units
+
+```{r}
+#Quantities given in Tonelada but too odd
+# Production
+ Data <- Data %>%
+ mutate(f_focus_measurement_prod = ifelse(`_uuid` =="df4b4aa7-dba4-44e4-9c46-7daae3db6801", "60 kgs bag", f_focus_measurement_prod))
+# 
+# # production 2023
+ Data <- Data %>%
+    mutate(f_focus_quant_prod_2023 = ifelse(`_uuid` == "df4b4aa7-dba4-44e4-9c46-7daae3db6801", f_focus_quant_sold_2023, f_focus_quant_prod_2023))%>%
+  mutate(f_focus_measurement_prod_2023 = ifelse(`_uuid` == "df4b4aa7-dba4-44e4-9c46-7daae3db6801", "60 kgs bag", f_focus_measurement_prod_2023))
+
+table(Data$f_focus_measurement_prod)
+table(Data$f_focus_measurement_sold)
+table(Data$f_focus_measurement_loss)
+table(Data$f_focus_measurement_prod_2023)
+table(Data$f_focus_measurement_sold_2023)
+```
+
+## Adjustment of costs for inputs per hectare and irrigation
+
+```{r}
+# These corrections were done based on enumerator feedback
+Data <- Data %>%
+  mutate(
+    f_inputs_costs_insect_season_per_hectare = case_when(
+      `_uuid` %in% c(
+        "35841a01-4eec-42b5-a035-8b6826f186ed", 
+        "106bb28b-530a-4439-b9a4-f6f6800d86ed",
+        "df4b4aa7-dba4-44e4-9c46-7daae3db6801",
+        "cf5edc02-c639-4dec-8cd5-52510c6279a2"
+      ) ~ f_inputs_costs_insect_season_per_hectare,
+      `_uuid` == "c1c4e0aa-8212-4879-8979-588dc376aa3b" ~ 1120,
+      `_uuid` == "a6051d60-aeb6-4e33-9a2a-f5d7234c310a" ~ 925,
+      `_uuid` == "8f6f8c9a-7b25-466d-a38f-50017cd2c4ac" ~ 195,
+      `_uuid` %in% c(
+        "aa6e9579-3e06-46cd-83e2-ab52aaa87dfa", 
+        "5e04d2c7-95bc-4316-90f0-3d4a6970a805",
+        "3e814e4e-6128-4543-8661-9fa5b48edcee"
+      ) ~ 500,
+      `_uuid` %in% c(
+        "309d5453-ffae-452a-b563-f7311105cbeb", 
+        "0b43e549-285b-4ce4-896c-292b9b1f3f73"
+      ) ~ 300,
+      `_uuid` == "b91cdb6d-4400-409f-bc8c-fe25b8f50f31" ~ 200,
+      TRUE ~ f_inputs_costs_insect_season_per_hectare
+    ),
+    
+    f_inputs_costs_irrigation_season_per_hectare = case_when(
+      `_uuid` == "9cc1ee9a-7c02-437f-bb31-a5e61f837e88" ~ 2222.2,
+      `_uuid` == "47a5f878-8d38-4ca1-929d-2710f9f7c6d0" ~ 2000,
+      `_uuid` == "afd699d1-ca85-4e3b-93a7-52360d6f0f83" ~ 1320,
+      `_uuid` == "694a8e77-4995-460a-bf0a-4992f49ac194" ~ 0,
+      `_uuid` == "3f1e16af-a26f-4bdf-9317-ee4a5ad48dc3" ~ 3333,
+      `_uuid` == "9dbb89a0-c573-4794-9019-38cc6d57b57b" ~ 900,
+      `_uuid` %in% c(
+        "13bd8ff0-1fcd-4653-89ef-f276663125e8", 
+        "02dcd692-d417-4788-ad26-b3017cd5675b", 
+        "5d4d11fe-2610-45f3-a242-383f6128ef74"
+      ) ~ 2000,
+      `_uuid` %in% c(
+        "f1e2fb0e-4ab7-4cf1-8fc2-331c2f14aad4", 
+        "1e051c21-83f1-4f73-9b24-33d4b8b7cc10"
+      ) ~ 823.53,
+      `_uuid` == "96768e8c-8161-4b2a-b542-473591bb1772" ~ 960,
+      TRUE ~ f_inputs_costs_irrigation_season_per_hectare
+    ),
+    
+    f_inputs_costs_biological_control_season_per_hectare = case_when(
+      `_uuid` %in% c(
+        "ff37c335-5056-40ea-88cd-12ae3a60ecf0",
+        "4279d072-fe92-4494-b01c-ea7852640144"
+      ) ~ 3333,
+      `_uuid` == "72e5807d-c046-41ac-8634-619c74f53a91" ~ 500,
+      TRUE ~ f_inputs_costs_biological_control_season_per_hectare
+    ),
+    
+    f_focus_costs_irrigation = case_when(
+      `_uuid` == "2a1c8f70-e0fe-444b-9ed1-d829cc3a511b" ~ 18000,
+      `_uuid` == "d3231795-ee26-48bb-b50e-d0a8070f14b8" ~ 21600,
+      TRUE ~ f_focus_costs_irrigation
+    )
+  )
+```
+
+## 7. Handle outliers and missing values
+
+```{r}
+subset_quantity_sold <- Data %>%
+  select(c(
+    enumerator,
+    name_of_farmer,
+    end,
+    f_size,
+    f_focus_crop_size,
+    f_focus_quant_prod,
+    f_focus_quant_sold,
+    f_focus_price
+  ))
+write_xlsx(subset_quantity_sold, path = "quantity_produced_sold.xlsx")
+
+```
+
+Data
+
+```{r, include = FALSE}
+excluded_columns <- c("f_size", "f_focus_crop_size", "f_focus_quant_prod", "f_focus_quant_prod_2023", "f_focus_quant_sold", "f_focus_quant_sold_2023") # Replace with actual variable names
+
+# Identify numerical columns for outlier handling, excluding those ending with "_#"
+numerical_columns <- names(Data %>% select_if(is.numeric)) %>%
+  .[!grepl("_\\d+$", .)]  %>%  # Exclude columns ending with "_#"
+  .[!(. %in% excluded_columns)] %>%  # Exclude specific columns
+  .[sapply(Data[.], function(x) length(unique(x)) > 2)]  # Exclude binary columns
+
+# Apply the outlier detection function to numerical columns
+Data <- Data %>%
+    mutate_at(vars(numerical_columns), funs(outlier_detection)) %>%
+
+  # Replace specific values (9999, 9998, 9997) with NA for numeric columns
+  mutate_if(is.numeric, list(~na_if(., 9999))) %>%
+  mutate_if(is.numeric, list(~na_if(., 9998))) %>%
+  mutate_if(is.numeric, list(~na_if(., 9997))) %>%
+
+  # Replace "I don't know" or "I prefer not to say" with NA for character columns
+  mutate_if(is.character, list(~na_if(., "i don't know"))) %>%
+  mutate_if(is.character, list(~na_if(., "i prefer not to say")))
+
+
+```
+
+Data activities
+
+```{r, include = FALSE}
+# Identify numerical columns for outlier handling, excluding those ending with "_#"
+numerical_columns <- names(Data_activities %>% select_if(is.numeric)) %>%
+  .[!grepl("_\\d+$", .)]  %>%  # Exclude columns ending with "_#"
+  .[sapply(Data_activities[.], function(x) length(unique(x)) > 2)]  # Exclude binary columns
+
+# Apply the outlier detection function to numerical columns
+Data_activities <- Data_activities %>%
+    mutate_at(vars(numerical_columns), funs(outlier_detection)) %>%
+
+  # Replace specific values (9999, 9998, 9997) with NA for numeric columns
+  mutate_if(is.numeric, list(~na_if(., 9999))) %>%
+  mutate_if(is.numeric, list(~na_if(., 9998))) %>%
+  mutate_if(is.numeric, list(~na_if(., 9997))) %>%
+
+  # Replace "I don't know" or "I prefer not to say" with NA for character columns
+  mutate_if(is.character, list(~na_if(., "i don't know"))) %>%
+  mutate_if(is.character, list(~na_if(., "i prefer not to say")))
+```
+
+Data hh labour
+
+```{r, include = FALSE}
+# Identify numerical columns for outlier handling, excluding those ending with "_#"
+numerical_columns <- names(Data_labour %>% select_if(is.numeric)) %>%
+  .[!grepl("_\\d+$", .)]   %>%  # Exclude columns ending with "_#"
+  .[sapply(Data_labour[.], function(x) length(unique(x)) > 2)]  # Exclude binary columns
+
+# Apply the outlier detection function to numerical columns
+Data_labour <- Data_labour %>%
+    mutate_at(vars(numerical_columns), funs(outlier_detection)) %>%
+
+  # Replace specific values (9999, 9998, 9997) with NA for numeric columns
+  mutate_if(is.numeric, list(~na_if(., 9999))) %>%
+  mutate_if(is.numeric, list(~na_if(., 9998))) %>%
+  mutate_if(is.numeric, list(~na_if(., 9997))) %>%
+
+  # Replace "I don't know" or "I prefer not to say" with NA for character columns
+  mutate_if(is.character, list(~na_if(., "i don't know"))) %>%
+  mutate_if(is.character, list(~na_if(., "i prefer not to say")))
+```
+
+# 
+
+# Section 2. Actual income calculation
+
+## 1. Transform Unit Measurements
+
+First, let's handle the transformation of unit measurements for production, sales, and losses.
+
+```{r}
+
+
+```
+
+Extract coefficients
+
+```{r}
+# Create cal_focus_measurement_prod based on f_focus_measurement_prod
+Data <- Data %>%
+  mutate(cal_focus_measurement_prod = case_when(
+    grepl("[[:digit:]]", f_focus_measurement_prod) ~ parse_number(f_focus_measurement_prod),
+    TRUE ~ 0
+  ))
+
+
+# Create cal_focus_measurement_sold based on f_focus_measurement_sold
+Data <- Data %>%
+  mutate(cal_focus_measurement_sold = case_when(
+    grepl("[[:digit:]]", f_focus_measurement_sold) ~ parse_number(f_focus_measurement_sold),
+    TRUE ~ 0
+  ))
+
+```
+
+```{r}
+# Clean hh_number for living income benchmark calculation 
+Data <- Data %>%
+  mutate(
+    hh_size = if_else(`_uuid` == "de3720d0-51d1-4f4c-990d-4c1d0d5705c5", 5, hh_size),
+    hh_children_num = if_else(`_uuid` == "de3720d0-51d1-4f4c-990d-4c1d0d5705c5", 0, hh_children_num)
+  )
+```
+
+## 2. Quantities Produced, Sold, Lost, and Consumption
+
+Now that the unit measurements are handled, calculate quantities for production, sales, and losses.
+
+```{r}
+Data <- Data %>%
+  # Convert relevant columns to numeric
+  mutate(across(c(f_focus_quant_prod, cal_focus_measurement_prod, f_focus_quant_sold, cal_focus_measurement_sold, #f_focus_quant_lost, cal_focus_measurement_lost, 
+                  f_focus_price), as.numeric)) %>%
+  # Perform calculations
+  mutate(cal_focus_quant_prod_kg = f_focus_quant_prod * cal_focus_measurement_prod,
+         cal_focus_quant_sold_kg = f_focus_quant_sold * cal_focus_measurement_sold,
+         
+         cal_focus_price_kg = ifelse(f_focus_quant_sold == 0, NA, f_focus_price / cal_focus_measurement_sold),
+         cal_focus_price_kg = ifelse(is.na(cal_focus_price_kg), median(cal_focus_price_kg, na.rm = TRUE), cal_focus_price_kg),
+         cal_focus_price_kg = ifelse(cal_focus_price_kg == 0, median(cal_focus_price_kg, na.rm = TRUE), cal_focus_price_kg)) %>%
+  mutate(cal_focus_quant_lost = f_focus_quant_lost_forecasted * cal_focus_measurement_prod) # losses measurement was not asked. we 60kg bags is the common measurement unit for production
+```
+
+```{r}
+#loss ratio
+Data <- Data %>%
+  mutate(cal_loss_ratio = ifelse(cal_focus_quant_prod_kg + cal_focus_quant_lost == 0, NA, 100* cal_focus_quant_lost / (cal_focus_quant_prod_kg + cal_focus_quant_lost))) %>%
+  mutate(cal_loss_ratio = ifelse(is.na(cal_loss_ratio), 0, cal_loss_ratio))
+#subset
+subset <- Data %>%
+  select(c(
+    f_focus_quant_sold,
+    cal_focus_measurement_sold,
+    cal_focus_quant_sold_kg,
+    cal_focus_quant_lost
+  ))
+```
+
+Tabulate some stats to check data quality, then make adjustments above
+
+```{r}
+
+# Create a boxplot of price
+boxplot(Data$cal_focus_price_kg,
+        ylab="Price of coffee per kg",
+        main="Boxplot of coffee price",
+        col="red",
+        las=1,
+        cex.lab=1.2,
+        sub="Data source: GCP (2024)"
+)
+
+# Create a boxplot of quantity prod
+boxplot(Data$cal_focus_quant_prod_kg,
+        ylab="quantity produced",
+        main="Boxplot of quantity produced",
+        col="red",
+        las=1,
+        cex.lab=1.2,
+        sub="Data source: GCP (2024)"
+)
+
+# Create a boxplot of quantity sold
+boxplot(Data$cal_focus_quant_sold_kg,
+        ylab="quantity sold",
+        main="Boxplot of quantity sold",
+        col="red",
+        las=1,
+        cex.lab=1.2,
+        sub="Data source: GCP (2024)"
+)
+
+# Filter the data and tabulate the uuid when price=0 but we have sales
+Data %>%
+  filter(cal_focus_price_kg == 0 & cal_focus_quant_sold_kg > 0) %>%
+  select(`_uuid`, cal_focus_price_kg, cal_focus_quant_sold_kg)  # Select relevant columns
+
+# Filter the data and tabulate the uuid when prod is lower than sales
+Data %>%
+  filter(cal_focus_quant_sold_kg > cal_focus_quant_prod_kg) %>%
+  select(`_uuid`, f_focus_quant_prod, f_focus_measurement_prod, f_focus_quant_sold, f_focus_measurement_sold, f_focus_crop_size_hectare)  # Select relevant columns
+
+Data %>%
+  filter(cal_focus_quant_sold_kg == 0 & cal_focus_quant_prod_kg == 0) %>%
+  select(`_uuid`, f_focus_crop_size_hectare, f_focus_quant_prod, f_focus_quant_sold, cal_focus_price_kg)
+
+Data %>%
+  filter(cal_focus_quant_sold_kg == 0 & cal_focus_price_kg > 0) %>%
+  select(`_uuid`, cal_focus_price_kg, cal_focus_quant_sold_kg)
+
+```
+
+```{r}
+# Create a boxplot of quant prod 2023
+boxplot(Data$f_focus_quant_prod_2023,
+        ylab="quant prod",
+        main="Boxplot of quand prod",
+        col="red",
+        las=1,
+        cex.lab=1.2,
+        sub="Data source: GCP (2024)"
+)
+
+# Create a boxplot of quant sold 2023
+boxplot(Data$f_focus_quant_sold_2023,
+        ylab="quant sold",
+        main="Boxplot of quant sold",
+        col="red",
+        las=1,
+        cex.lab=1.2,
+        sub="Data source: GCP (2024)"
+)
+
+# Filter the data and tabulate the uuid when prod is lower than sales
+Data %>%
+  filter(f_focus_quant_sold_2023 > f_focus_quant_prod_2023) %>%
+  select(`_uuid`, f_focus_quant_prod_2023, f_focus_measurement_prod_2023, f_focus_quant_sold_2023, f_focus_measurement_sold_2023, f_focus_crop_size_hectare)  # Select relevant columns
+```
+
+## 3. Revenue Calculation
+
+We now calculate the revenue based on the quantities and prices.
+
+```{r}
+Data <- Data %>%
+  mutate(cal_focus_revenue = cal_focus_quant_prod_kg * cal_focus_price_kg,
+         cal_focus_revenue = replace_na(cal_focus_revenue, 0))
+```
+
+```{r}
+subset_revenue <- Data %>%
+  select(c(
+    cal_focus_quant_prod_kg,
+    cal_focus_price_kg,
+    cal_focus_revenue
+  ))
+```
+
+## 4. Productivity
+
+Calculate productivity by dividing the production by farm size.
+
+```{r}
+Data <- Data %>%
+  mutate(across(c(cal_focus_quant_prod_kg, f_focus_crop_size_hectare), as.numeric)) %>%
+  mutate(f_focus_crop_size_hectare = replace_na(f_focus_crop_size_hectare, 0),
+         cal_focus_productivity_kg_hectare = ifelse(f_focus_crop_size_hectare > 0, cal_focus_quant_prod_kg / f_focus_crop_size_hectare, NA))
+```
+
+Yield gap
+
+```{r}
+Data <- Data %>%
+  # Assign yield potential based on crop type
+  mutate(yield_potential= ifelse(f_focus_crop_type == "Robusta (conillon)", 2850, 2250)) %>%
+  # Calculate yield gap and percentage yield gap
+  mutate(cal_yield_gap =  yield_potential - cal_focus_productivity_kg_hectare,
+         cal_yield_gap_percent = (cal_yield_gap / cal_focus_productivity_kg_hectare)*100) %>%
+  mutate(cal_yield_gap_percent = na_if(cal_yield_gap_percent, Inf))
+
+
+
+#1 Plot yield gap///////
+# Calculate mean and median for each crop type
+summary_stats <- Data %>%
+  group_by(f_focus_crop_type) %>%
+  summarise(
+    mean_yield_gap = mean(cal_yield_gap, na.rm = TRUE),
+    median_yield_gap = median(cal_yield_gap, na.rm = TRUE)
+  )
+
+# Plot histogram with mean and median lines and labels
+ggplot(Data, aes(x = cal_yield_gap, fill = f_focus_crop_type)) +
+  geom_histogram(binwidth = 100, color = "white", alpha = 0.8) +
+  geom_vline(
+    data = summary_stats, 
+    aes(xintercept = mean_yield_gap, color = "Mean"), 
+    linetype = "dashed", size = 0.5
+  ) +
+  geom_vline(
+    data = summary_stats, 
+    aes(xintercept = median_yield_gap, color = "Median"), 
+    linetype = "dotted", size = 0.5
+  ) +
+  geom_text(
+    data = summary_stats,
+    aes(
+      x = mean_yield_gap, 
+      y = 5, # Adjust based on your dataset to position labels properly
+      label = paste0("Mean: ", round(mean_yield_gap, 1))
+    ),
+    color = "black",
+    angle = 0,
+    hjust = -0.5,
+    size = 2.5
+  ) +
+  geom_text(
+    data = summary_stats,
+    aes(
+      x = median_yield_gap, 
+      y = 4, # Adjust based on your dataset
+      label = paste0("Median: ", round(median_yield_gap, 1))
+    ),
+    color = "red",
+    angle = 0,
+    hjust = -0.5,
+    size = 2.5
+  ) +
+  scale_fill_manual(
+    values = c("Arabica" = green, "Robusta (conillon)" = brown),
+    name = "Coffee Type"
+  ) +
+  scale_color_manual(
+    name = "Statistics",
+    values = c("Mean" = "black", "Median" = "red")
+  ) +
+  facet_wrap(~ f_focus_crop_type, ncol = 1) +
+  labs(
+    title = "Distribution of Yield Gap by Coffee Type",
+    x = "Yield Gap (kg/hectare)",
+    y = "Count"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "right")
+
+#2 percentage yield gap /////////////
+
+# Calculate mean and median for yield gap percentage by crop type
+summary_stats <- Data %>%
+  group_by(f_focus_crop_type) %>%
+  summarise(
+    mean_yield_gap_percent = mean(cal_yield_gap_percent, na.rm = TRUE),
+    median_yield_gap_percent = median(cal_yield_gap_percent, na.rm = TRUE)
+  )
+
+# Plot faceted histogram with mean and median lines and labels
+ggplot(Data, aes(x = cal_yield_gap_percent, fill = f_focus_crop_type)) +
+  geom_histogram(
+    binwidth = 50, 
+    color = "white", 
+    alpha = 0.8
+  ) +
+  geom_vline(
+    data = summary_stats, 
+    aes(xintercept = mean_yield_gap_percent, color = "Mean"), 
+    linetype = "dashed", size = 0.5
+  ) +
+  geom_vline(
+    data = summary_stats, 
+    aes(xintercept = median_yield_gap_percent, color = "Median"), 
+    linetype = "dotted", size = 0.5
+  ) +
+  geom_text(
+    data = summary_stats,
+    aes(x = mean_yield_gap_percent, y = 12, label = paste("Mean:", round(mean_yield_gap_percent, 1))),
+    color = "black", size = 2.5, hjust = -0.1
+  ) +
+  geom_text(
+    data = summary_stats,
+    aes(x = median_yield_gap_percent, y = 10, label = paste("Median:", round(median_yield_gap_percent, 1))),
+    color = "red", size = 2.5, hjust = -0.1
+  ) +
+  scale_fill_manual(
+    values = c("Arabica" = green, "Robusta (conillon)" = brown),
+    name = "Crop Type"
+  ) +
+  scale_color_manual(
+    name = "Statistics",
+    values = c("Mean" = "black", "Median" = "red")
+  ) +
+  facet_wrap(~ f_focus_crop_type) +
+  labs(
+    title = "Distribution of Percentage Yield Gap by Coffee Type",
+    x = "Percentage Yield Gap (%)",
+    y = "Count"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "right")
+
+
+
+
+```
+
+## 5. Labour costs calculation
+
+Here, we calculate the labor costs efficiently using across() for multiple columns.
+
+```{r}
+#calculate labor cost for temporary workers using repeated group data about activities
+#1 Calculate cal_labour_temporary_cost_activity (for each activity) that will appear in Data_activity
+#f_labour_temporary_wage_per_day_activity is given globally
+Data_activities <- Data_activities %>%
+  mutate(cal_labour_temporary_cost_activity = f_labour_days_activity *  #f_labour_temporary_workers_activity * 
+           f_labour_temporary_wage_per_day_activity)
+
+#2 Calculate cal_labour_temporary_cost_activity, sum it by parent_index and store in a subset to be merged in "Data"
+Data_labour_temporary <- Data_activities %>%
+  mutate(cal_labour_temporary_cost_activity = f_labour_days_activity *  #f_labour_temporary_workers_activity * 
+           f_labour_temporary_wage_per_day_activity) %>%
+  group_by(`_parent_index`) %>%
+  summarize(cal_labour_temporary_cost = sum(cal_labour_temporary_cost_activity, na.rm = TRUE), .groups = 'drop') %>%
+  mutate(cal_labour_temporary_cost = ifelse(is.na(cal_labour_temporary_cost), 0, cal_labour_temporary_cost))
+ 
+#calculate labor cost for household using repeated group data about activities
+#1 Calculate cal_labour_cost_household_activity (for each activity)
+Data_activities <- Data_activities %>%
+  mutate(cal_labour_cost_household_activity = f_labour_days_activity * f_labour_family_workers_activity * f_labour_temporary_wage_per_day_activity/f_labour_temporary_workers_activity)
+
+#2 Calculate cal_labour_cost_household_activity, sum it by parent_index and store in a subset to be merged in "Data"
+Data_labour_household <- Data_activities %>%
+  mutate(cal_labour_cost_household_activity_1 = f_labour_days_activity * f_labour_family_workers_activity * f_labour_temporary_wage_per_day_activity/f_labour_temporary_workers_activity) %>%
+  group_by(`_parent_index`) %>%
+  summarize(cal_labour_cost_household_only = sum(cal_labour_cost_household_activity_1, na.rm = TRUE), .groups = 'drop') %>%
+  mutate(cal_labour_cost_household_only = ifelse(is.na(cal_labour_cost_household_only), 0, cal_labour_cost_household_only))
+
+ # Merge the summarized data back to the main dataset
+Data <- Data %>%
+  left_join(Data_labour_temporary, by = c("_index" = "_parent_index")) %>%
+  left_join(Data_labour_household, by = c("_index" = "_parent_index"))
+```
+
+```{r}
+#calculate labour costs
+Data <- Data %>%
+  mutate(
+    cal_labour_cost = f_crop_groups_labourer_costs +
+                               f_crop_labour_permanent_costs + cal_labour_temporary_cost ,  
+          cal_labour_cost = ifelse(is.na(cal_labour_cost), 0, cal_labour_cost)) 
+
+#calculate labour costs including household labour costs
+Data <- Data %>%
+  mutate(cal_labour_cost_incl_hhlabour = cal_labour_cost + cal_labour_cost_household_only,
+         cal_labour_cost_incl_hhlabour = ifelse(is.na(cal_labour_cost_incl_hhlabour), 0, cal_labour_cost_incl_hhlabour))
+
+#cost per hectare
+Data <- Data %>%
+  # Calculate per kg input costs
+  mutate(cal_labour_cost_ha = cal_labour_cost / f_focus_crop_size_hectare) %>%
+  # Replace infinite values with NA
+  mutate(cal_labour_cost_ha = ifelse(is.infinite(cal_labour_cost_ha), NA, cal_labour_cost_ha)) %>%
+  # Replace NA values with 0
+  mutate(cal_labour_cost_ha = ifelse(is.na(cal_labour_cost_ha), 0, cal_labour_cost_ha))
+
+Data <- Data %>%
+  # Calculate per kg input costs
+  mutate(cal_labour_cost_incl_hhlabour_ha = cal_labour_cost_incl_hhlabour / f_focus_crop_size_hectare) %>%
+  # Replace infinite values with NA
+  mutate(cal_labour_cost_incl_hhlabour_ha = ifelse(is.infinite(cal_labour_cost_incl_hhlabour_ha), NA, cal_labour_cost_incl_hhlabour_ha)) %>%
+  # Replace NA values with 0
+  mutate(cal_labour_cost_incl_hhlabour_ha = ifelse(is.na(cal_labour_cost_incl_hhlabour_ha), 0, cal_labour_cost_incl_hhlabour_ha))
+```
+
+## 6. Input Costs Calculation
+
+Calculate input costs for each season.
+
+```{r}
+Data <- Data %>%
+  # Convert and replace NA values for production costs and input costs
+  mutate(across(starts_with("f_inputs_costs"), ~replace(as.numeric(.), is.na(.), 0))) %>%
+  # Calculate inputs costs per season for those in per hectare
+  mutate(cal_inputs_costs_insect_season = f_inputs_costs_insect_season_per_hectare * f_focus_crop_size_hectare,
+         cal_inputs_costs_irrigation_season = f_inputs_costs_irrigation_season_per_hectare * f_focus_crop_size_hectare,
+         cal_inputs_costs_biological_control_season = f_inputs_costs_biological_control_season_per_hectare * f_focus_crop_size_hectare,
+         cal_inputs_costs_other_season = f_inputs_costs_other_season_per_hectare * f_focus_crop_size_hectare) %>%
+  # Calculate total inputs cost per season
+ mutate(cal_inputs_costs = 
+           rowSums(select(., starts_with("f_inputs_costs")) %>%
+                     select(-c(f_inputs_costs_insect_season_per_hectare,
+                               f_inputs_costs_irrigation_season_per_hectare,
+                               f_inputs_costs_biological_control_season_per_hectare,
+                               f_inputs_costs_other_season_per_hectare)), na.rm = TRUE) +
+           rowSums(select(., cal_inputs_costs_insect_season, 
+                               cal_inputs_costs_irrigation_season, 
+                               cal_inputs_costs_biological_control_season, 
+                               cal_inputs_costs_other_season), na.rm = TRUE))
+
+
+Data <- Data %>%
+  # Calculate per kg input costs
+  mutate(cal_inputs_costs_kg = cal_inputs_costs / cal_focus_quant_prod_kg) %>%
+  # Replace infinite values with NA
+  mutate(cal_inputs_costs_kg = ifelse(is.infinite(cal_inputs_costs_kg), NA, cal_inputs_costs_kg)) %>%
+  # Replace NA values with 0
+  mutate(cal_inputs_costs_kg = ifelse(is.na(cal_inputs_costs_kg), 0, cal_inputs_costs_kg))
+
+#cost per hectare
+Data <- Data %>%
+  # Calculate per kg input costs
+  mutate(cal_inputs_costs_ha = cal_inputs_costs / f_focus_crop_size_hectare) %>%
+  # Replace infinite values with NA
+  mutate(cal_inputs_costs_ha = ifelse(is.infinite(cal_inputs_costs_ha), NA, cal_inputs_costs_ha)) %>%
+  # Replace NA values with 0
+  mutate(cal_inputs_costs_ha = ifelse(is.na(cal_inputs_costs_ha), 0, cal_inputs_costs_ha))
+```
+
+```{r}
+# Boxplot of cal_inputs_costs by coffee type
+ggplot(Data[Data$cal_inputs_costs < 200000,], aes(x = f_focus_crop_type, y = cal_inputs_costs, fill = f_focus_crop_type)) +
+  geom_boxplot(alpha = 0.7, outlier.color = "red", outlier.size = 1.5) +
+  labs(
+    title = "Distribution of Input Costs by Coffee Type",
+    x = "Coffee Type",
+    y = "Input Costs (BRL)",
+    fill = "Coffee Type"
+  ) +
+  scale_fill_manual(values = c("Arabica" = "#008000", "Robusta (conillon)" = "#8B4513")) +  # Green for Arabica, Brown for Robusta
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    axis.title.x = element_text(size = 12, face = "bold"),
+    axis.title.y = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(size = 10, angle = 0, hjust = 0.5),
+    legend.position = "none"  # Optional: Hide legend if redundant with x-axis labels
+  )
+
+
+
+#per kg
+ggplot(Data[Data$cal_inputs_costs_kg < 100,], aes(x = f_focus_crop_type, y = cal_inputs_costs_kg, fill = f_focus_crop_type)) +
+  geom_boxplot(alpha = 0.7, outlier.color = "red", outlier.size = 1.5) +
+  labs(
+    title = "Distribution of Input Costs per kg by Coffee Type",
+    x = "Coffee Type",
+    y = "Input Costs (BRL/kg)",
+    fill = "Coffee Type"
+  ) +
+  scale_fill_manual(values = c("Arabica" = "#008000", "Robusta (conillon)" = "#8B4513")) +  # Green for Arabica, Brown for Robusta
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    axis.title.x = element_text(size = 12, face = "bold"),
+    axis.title.y = element_text(size = 12, face = "bold"),
+    axis.text.x = element_text(size = 10, angle = 0, hjust = 0.5),
+    legend.position = "none"  # Optional: Hide legend if redundant with x-axis labels
+  )
+```
+
+## 7. Other Costs Calculation
+
+Calculate other related costs. PLEASE DOUBLE CHECK ALL POSSIBLE OPTIONS, SOME OPTIONS ARE EXCLUDED HERE
+
+```{r}
+Data <- Data %>%
+  mutate(across(c("f_focus_costs_irrigation", "f_focus_costs_energy", "f_focus_costs_land", "f_focus_costs_storage", "f_focus_costs_marketing", 
+                  "f_focus_costs_transporation" 
+                  ), ~replace(as.numeric(.), is.na(.), 0))) %>%
+         mutate(cal_focus_other_costs = rowSums(select(., starts_with("f_focus_costs")), na.rm = TRUE))
+#cost per hectare
+Data <- Data %>%
+  # Calculate per kg input costs
+  mutate(cal_focus_other_costs_ha = cal_focus_other_costs / f_focus_crop_size_hectare) %>%
+  # Replace infinite values with NA
+  mutate(cal_focus_other_costs_ha = ifelse(is.infinite(cal_focus_other_costs_ha), NA, cal_focus_other_costs_ha)) %>%
+  # Replace NA values with 0
+  mutate(cal_focus_other_costs_ha = ifelse(is.na(cal_focus_other_costs_ha), 0, cal_focus_other_costs_ha))
+```
+
+## 8. Total Cost Focus Crop
+
+We can streamline the calculation of total cost across different approaches.
+
+```{r}
+Data <- Data %>%
+  mutate(cal_focus_cost = cal_labour_cost + cal_inputs_costs + cal_focus_other_costs,
+         cal_focus_cost = replace_na(cal_focus_cost, 0),
+         cal_focus_cost_v2 = replace_na(f_focus_production_costs_season, 0))
+
+# Apply outlier detection for cal_focus_cost, as there are a few extreme outliers 
+Data <- Data %>%
+  mutate(
+    cal_focus_cost = outlier_detection(cal_focus_cost)
+  )
+
+Data <- Data %>%
+  mutate(
+    cal_focus_cost_kg = case_when(
+      !is.na(cal_focus_quant_prod_kg) & cal_focus_quant_prod_kg > 0 ~ cal_focus_cost / cal_focus_quant_prod_kg,
+      TRUE ~ NA_real_  # Assign NA for zero or missing production quantities
+    )
+  )
+```
+
+```{r}
+boxplot(Data$cal_focus_cost_kg,
+        ylab="production cost",
+        main="Boxplot of production cost",
+        col=red,
+        las=1,
+        cex.lab=1.2
+)
+
+```
+
+```{r}
+subset_Data <- Data %>%
+  select(
+    '_uuid',
+    cal_labour_cost,
+    cal_inputs_costs,
+    cal_focus_other_costs,
+    cal_focus_cost,
+    cal_focus_cost_kg,
+    cal_focus_quant_prod_kg,
+    cal_focus_revenue,
+    f_size
+  )
+```
+
+## 9. Net Income Focus Crop
+
+Similarly, calculate the net income using both approaches.
+
+```{r}
+Data <- Data %>%
+  mutate(
+    cal_focus_income = ifelse(cal_focus_revenue == 0, 0, cal_focus_revenue - cal_focus_cost),
+    cal_focus_income = replace_na(cal_focus_income, 0),
+    cal_focus_income_v2 = cal_focus_revenue - cal_focus_cost_v2
+  )
+```
+
+```{r}
+boxplot(Data$cal_focus_income,
+        ylab="Net Coffee Income",
+        main="Boxplot of income",
+        col=red,
+        las=1,
+        cex.lab=1.2
+)
+
+```
+
+```{r}
+subset_Data <- Data %>%
+  select(
+    '_uuid',
+    cal_labour_cost,
+    cal_inputs_costs,
+    cal_focus_other_costs,
+    cal_focus_cost,
+    cal_focus_cost_kg,
+    cal_focus_quant_prod_kg,
+    f_focus_quant_sold,
+    cal_focus_price_kg,
+    cal_focus_revenue,
+    cal_focus_income,
+    f_size,
+    f_focus_crop_size,
+    f_size_hectare,
+    f_focus_crop_size_hectare
+  )
+```
+
+## 10. Other Crop Income Calculation
+
+Handle other income calculations similarly.
+
+```{r}
+# Update the Data to set specified variables to empty if f_types_crops_0 is equal to 1
+Data <- Data %>%
+  mutate(across(
+    c(f_othermaincrop_1_quant_sold, f_othermaincrop_1_meas_sold, 
+      #f_othermaincrop_1_meas_sold_other,
+      f_othermaincrop_1_inc_sold, f_othermaincrop_1_price, f_othermaincrop_2_quant_sold, f_othermaincrop_2_meas_sold,
+      #f_othermaincrop_2_meas_sold_other, 
+      f_othermaincrop_2_inc_sold, f_othermaincrop_2_price, f_other_crop_income)
+#    ~ if_else(f_types_crops_0 == 1, NA, .)  # Set to NA if f_types_crops_0 is 1
+  )) %>%
+  
+  # Continue with the existing mutate operations
+  mutate(across(
+    c(f_othermaincrop_1_inc_sold, f_othermaincrop_2_inc_sold, f_other_crop_income #, f_intercrop_net_earning
+      ),
+    ~ replace(as.numeric(.), is.na(.), 0)
+  ),
+  cal_other_crop_income = rowSums(select(., f_othermaincrop_1_inc_sold, f_othermaincrop_2_inc_sold, f_other_crop_income #, f_intercrop_net_earning
+                                         ), na.rm = TRUE),
+  cal_other_crop_income = replace_na(cal_other_crop_income, 0))
+
+```
+
+## 11. Livestock income calculation
+
+```{r}
+Data <- Data %>%
+  mutate(across(c(f_livestock_nr_hired_labourers, f_livestock_days_hiredlabour, f_livestock_wages_hiredlabour, f_livestock_costs_other, f_livestock_revenue_total), ~replace(as.numeric(.), is.na(.), 0)),
+         cal_livestock_cost = f_livestock_nr_hired_labourers * f_livestock_days_hiredlabour * f_livestock_wages_hiredlabour + f_livestock_costs_other,
+         cal_livestock_income = f_livestock_revenue_total - cal_livestock_cost,
+         cal_livestock_income = replace_na(cal_livestock_income, 0))
+```
+
+```{r}
+subset_livestock <- Data %>%
+  select(c(
+    f_livestock_nr_hired_labourers,
+    f_livestock_days_hiredlabour,
+    f_livestock_wages_hiredlabour,
+    f_livestock_costs_other,
+    cal_livestock_cost,
+    f_livestock_revenue_total,
+    f_size,
+    cal_livestock_income
+  ))
+```
+
+## 12. General Farm Costs Calculation
+
+```{r}
+Data <- Data %>%
+  mutate(
+    # Replace NA with 0 for specified columns
+    across(c(#f_materials_other_costs, 
+             ends_with("_equip_costs")), ~replace(as.numeric(.), is.na(.), 0)),
+    
+    # Calculate equipment costs
+    cal_equipment_costs = f_equip_costs,
+      #f_mech_equip_costs + f_nonmech_equip_costs + f_materials_other_costs,
+    
+    # Replace NA with 0 for loan-related columns
+    across(c(hh_loan_one_size, hh_loan_one_value_interest, hh_loan_two_size, hh_loan_two_value_interest), ~replace(as.numeric(.), is.na(.), 0)),
+    
+    # Calculate loan costs
+    loan_1_cost = ifelse(hh_loan_one_value_interest == 0, 0, hh_loan_one_size *  (hh_loan_one_value_interest/100)),
+    loan_2_cost = ifelse(hh_loan_two_value_interest == 0, 0, hh_loan_two_size *  (hh_loan_two_value_interest/100)),
+    
+    # Sum loan costs
+    cal_farm_costs_loans = loan_1_cost + loan_2_cost,
+    
+    # Calculate general farm costs including coop fee
+    cal_farm_costs_general = cal_equipment_costs + cal_farm_costs_loans, #+ f_coop_fee,
+    
+    # Replace NA with 0 for general farm costs
+    cal_farm_costs_general = replace_na(cal_farm_costs_general, 0)
+  ) %>%
+  
+  # Remove temporary loan cost columns
+  select(-c(loan_1_cost, loan_2_cost))
+
+```
+
+```{r}
+subset_general_costs <- Data %>%
+  select(c(
+    hh_loan_one_size,
+    hh_loan_one_value_interest,
+    hh_loan_two_size,
+    hh_loan_two_value_interest,
+    f_equip_costs,
+    cal_equipment_costs,
+    cal_farm_costs_loans
+  ))
+```
+
+## 13. Off-farm and other income calculation
+
+```{r}
+Data <- Data %>%
+  mutate(across(starts_with("_month"), ~replace(as.numeric(.), is.na(.), 0)),
+         across(c("f_income_rent_land_month", "f_income_rent_equipment_month","f_income_sales_non_agri_products_month", #"f_income_sales_equipment_month", 
+                  "f_income_other_coffee_farm_month", "f_income_other_farm_month", "f_income_other_otheractivities_month"
+                  ), ~replace(as.numeric(.), is.na(.), 0)),
+         cal_offfarm_income = 12 * rowSums(select(., starts_with("f_income_rent"), starts_with("f_income_sales"), starts_with("f_income_other")
+                                                  ), na.rm = TRUE),
+         cal_offfarm_income = replace_na(cal_offfarm_income, 0))
+```
+
+## 14. Farm income calculation
+
+```{r}
+Data <- Data %>%
+  mutate(cal_farm_income = cal_focus_income + cal_other_crop_income + cal_livestock_income - cal_farm_costs_general,
+         cal_farm_income = replace_na(cal_farm_income, 0))
+```
+
+## 15. Actual income calculation
+
+```{r}
+Data <- Data %>%
+  mutate(cal_actual_income = cal_focus_income + cal_other_crop_income + cal_livestock_income + cal_offfarm_income - cal_farm_costs_general)
+
+```
+
+```{r}
+subset <- Data %>%
+  select(c(
+    cal_focus_cost,
+    cal_focus_revenue,
+    cal_focus_income,
+    cal_other_crop_income,
+    cal_livestock_income,
+    cal_offfarm_income,
+    cal_farm_costs_general,
+    cal_actual_income,
+    f_size_hectare
+  ))
+```
+
+```{r}
+# Select the required variables and create a new dataframe for checking whether everything went right
+income_costs_df <- Data %>%
+  select(cal_focus_income, 
+         cal_other_crop_income, 
+         cal_livestock_income, 
+         cal_offfarm_income, 
+         cal_farm_costs_general, cal_actual_income)
+
+```
+
+## 16.Diversification ratio
+
+We calculate the diversification ratio using a revenue-based approach, which involves dividing the revenue from the primary commodity by the total household revenues. An alternative method would be to divide the net income from the primary commodity by the total household income. However, this approach may yield skewed results, as high costs can lead to negative net household income over the year. Consequently, it does not accurately reflect the share of income derived from coffee.
+
+```{r}
+# Preferred approach for calculating diversification ratio
+Data <- Data %>%
+  # Calculate total income
+  mutate(total_income = cal_focus_revenue + cal_other_crop_income + cal_livestock_income + cal_offfarm_income) 
+
+Data <- Data %>%
+  # Calculate diversification ratio (v1)
+  mutate(diversification_ratio = ifelse(total_income == 0, 0, cal_focus_revenue / total_income),
+         diversification_ratio = ifelse(is.na(diversification_ratio), 0, diversification_ratio)) 
+```
+
+```{r}
+#METHODOLOGY WITH DIVERSIFICATION RATIO
+#proportionally divide general farm costs over coffee vs other farm activities for further analysis purposes
+Data <- Data %>%
+ mutate(
+  cal_farm_costs_general_coffee = cal_farm_costs_general*diversification_ratio,
+  cal_farm_costs_general_other = cal_farm_costs_general -cal_farm_costs_general_coffee
+ )
+#Update corresponding variables since they will be analyzed seperately
+Data <- Data %>%
+ mutate(
+  cal_focus_other_costs = cal_focus_other_costs + cal_farm_costs_general_coffee,
+  cal_focus_cost = cal_labour_cost + cal_inputs_costs + cal_focus_other_costs,
+  cal_focus_cost = replace_na(cal_focus_cost, 0),
+  cal_focus_cost_kg = cal_focus_cost / cal_focus_quant_prod_kg,
+  cal_focus_income = cal_focus_revenue - cal_focus_cost,
+  cal_diversified_income = cal_other_crop_income + cal_livestock_income + cal_offfarm_income - cal_farm_costs_general_other)
+#check whether numbers still add up with original actual_income
+subset <- Data %>%
+ select(cal_focus_income, cal_diversified_income, cal_actual_income)
+
+# METHODOLOGY WITHOUT DIVERSIFICATION RATIO
+#Data <- Data %>%
+# mutate(
+#  cal_diversified_income = cal_other_crop_income + cal_livestock_income + cal_offfarm_income - cal_farm_costs_general)
+```
+
+## 17. Living income gap
+
+```{r}
+#Brasil Living income in 2024 = R$4,043, Urban Brazil , Minas Gerais South/Southwestern Region
+# https://www.globallivingwage.org/living-wage-benchmarks/urban-brazil/
+
+# Exchange rate 1 USD = 5.78061 BRL on Nov 12, 2024 https://www.xe.com/currencyconverter/convert/?Amount=1&From=BRL&To=USD
+
+exchange_rate <- 5.78061
+# standard_income_BRL <- 4043 *12 #monthly income translated to yearly 
+# standard_income_USD <- (4043*12) / exchange_rate  # Monthly benchmark income in USD translated to yearly
+standard_income_BRL <- 4043  #monthly income
+standard_income_USD <- 4043 / exchange_rate  # Monthly benchmark income in USD 
+standard_equivalent <- 2.1  # Household equivalent for 2 adults and 2 children
+
+# Data transformation
+Data <- Data %>%
+  mutate(
+    # Calculate the number of adults
+    nr_adults = hh_size - hh_children_num,
+    # Apply household equivalence scale:
+    # - First adult contributes 1
+    # - Each additional adult contributes 0.5
+    # - Each child contributes 0.3
+    household_equivalent = 1 + pmax(0, (nr_adults - 1) * 0.5) + (hh_children_num * 0.3),
+    # Calculate living income benchmark for each household for a year
+    living_income_benchmark_hh_USD = (standard_income_USD / standard_equivalent) * household_equivalent * 12,
+    living_income_benchmark_hh_BRL = (standard_income_BRL / standard_equivalent) * household_equivalent * 12
+    ) 
+
+#Calculate the Living Income Gap 
+Data <- Data %>%
+  mutate(living_Income_Gap_BRL = living_income_benchmark_hh_BRL - cal_actual_income) %>%
+  mutate(Living_Income_Gap_USD = living_income_benchmark_hh_USD - (cal_actual_income/exchange_rate)) %>%
+  mutate(living_Income_Gap_percent = (living_Income_Gap_BRL/living_income_benchmark_hh_BRL)*100) %>%
+  mutate(living_Income_Gap_percent= ifelse(is.infinite(living_Income_Gap_percent), NA, living_Income_Gap_percent))
+
+```
+
+```{r}
+# check data to see whether everything went right
+LI_df <- Data %>%
+  select(cal_actual_income,
+         living_income_benchmark_hh_USD, 
+         living_income_benchmark_hh_BRL, 
+         living_Income_Gap_BRL, 
+         Living_Income_Gap_USD)
+
+```
+
+## 17 Additional calculations
+
+### 17.1 Sustainable farming practices (carbon credits, regenerative agriculture certification and premiums)
+
+```{r}
+#Income from from Sustainable farming practices
+Data<- Data %>%
+  mutate(cal_net_income_sust_practice= f_sust_carbon_amount + f_sust_regen_agri_amount + f_sust_premium_amount)
+```
+
+### 17.2 scores of adoption of Sustainable farming practices (Regenerative Agriculture) by smallholder farmers this calculate scores of sustainable farming practices to be used later in some indicators
+
+```{r}
+Data <- Data %>%
+  mutate(soil_management_score = rowSums(select(., starts_with("f_soil_management/") & 
+                                            !contains("i_don't_know") & 
+                                            !contains("i_prefer_not_to_say") & 
+                                            !contains("other_(please_specify)")), na.rm = TRUE),
+         biodiversity_conservation_score = rowSums(select(., starts_with("f_biodiversity_conservation/") & 
+                                            !contains("i_don't_know") & 
+                                            !contains("i_prefer_not_to_say")& 
+                                            !contains("other_(please_specify)")), na.rm = TRUE),
+         water_management_score = rowSums(select(., starts_with("f_water_management/") & 
+                                            !contains("i_don't_know") & 
+                                            !contains("i_prefer_not_to_say")& 
+                                            !contains("other_(please_specify)")), na.rm = TRUE),
+         enabling_env_score = rowSums(select(., starts_with("f_enabling_env/") & 
+                                            !contains("i_don't_know") & 
+                                            !contains("i_prefer_not_to_say")), na.rm = TRUE)) %>%
+  mutate(cal_sustainable_farming_pract_indiv = soil_management_score + biodiversity_conservation_score + water_management_score) 
+
+
+Data <- Data %>%
+  mutate(cal_soil_management = ifelse(soil_management_score == 0, 0, 1),
+         cal_biodiversity_conservation = ifelse(biodiversity_conservation_score == 0, 0, 1),
+         cal_water_management = ifelse(water_management_score == 0, 0, 1),
+         cal_enabling_env = ifelse(enabling_env_score == 0, 0, 1))  #%>%
+#  mutate(cal_sustainable_farming_pract_global = cal_soil_management + cal_biodiversity_conservation + cal_water_management + #cal_enabling_env) %>%
+  # select(-c(soil_management_score, biodiversity_conservation_score, water_management_score, enabling_env_score))
+```
+
+### Certification
+
+In the following code, we split out the Other, please specify category into "No certification" and "Other specified certifications" . A mistake was made in the creation of the survey as we did not account for a no certification category
+
+```{r}
+# Define patterns for "No Certification" in Portuguese
+no_certification_patterns <- c(
+  "Não tem", "Não possui", "Não possui certificação", "Não tem certificação", "Nenhuma", "Nenhum", 
+  "Não tem", "Nenhuma certificação", "Nenhum programa", "Não é certificado", "Não", "Nao", 
+  "Não sabe", "Não é certifica", "Está em processo, mas ainda não é certificado", 
+  "Não são", "Nenhuma certificação", "Sem certificação", 
+  "Produtor ainda não vendeu café, e não está em nenhum programa de certificação", 
+  "Não tem certificação", "Nada", "Nenhum, produtor iniciou cultivo com café a 3 anos"
+)
+
+# Combine the patterns into a single regex pattern
+combined_pattern <- paste(no_certification_patterns, collapse = "|")
+
+# Create two new columns in the Data dataset
+Data <- Data %>%
+  mutate(
+    # Column for "No Certification" (1 if matches the pattern, 0 otherwise)
+    `f_certification_types/no_certification` = ifelse(
+      str_detect(f_certification_other, regex(combined_pattern, ignore_case = TRUE)), 
+      1, 
+      0
+    ),
+    
+    # Column for "Other Specified Certification" (1 if other is specified and not matching "No Certification")
+    `f_certification_types/other_specified_certification` = ifelse(
+      !is.na(f_certification_other) & 
+      f_certification_other != "" & 
+      !str_detect(f_certification_other, regex(combined_pattern, ignore_case = TRUE)), 
+      1, 
+      0
+    )
+  )
+```
+
+Grouping other certifications calculate certification score
+
+```{r}
+Data <- Data %>%
+  mutate(certification_grouped = case_when(
+    grepl("Gerações", f_certification_other, ignore.case = TRUE) ~ "Gerações",
+    grepl("Certifica Minas", f_certification_other, ignore.case = TRUE) ~ "Certifica Minas",
+    grepl("Source plus|Starplus", f_certification_other, ignore.case = TRUE) ~ "Source Plus / Starplus",
+    grepl("4C", f_certification_other, ignore.case = TRUE) ~ "4C Process",
+    grepl("não possui|não tem|nenhum|sem certificação|nada|Está em processo, mas ainda não é certificado|Não|Não é certificado|Não é certifica|Não são|Nao", f_certification_other, ignore.case = TRUE) ~ "No Certification",
+    grepl("Green trace|Green trade", f_certification_other, ignore.case = TRUE) ~ "Green Programs",
+    grepl("Nestlé", f_certification_other, ignore.case = TRUE) ~ "Nestlé",
+    grepl("sulcafina|tree house|ldc|currículo|AAA|NKG", f_certification_other, ignore.case = TRUE) ~ "Other Programs",
+    grepl("processo inicial", f_certification_other, ignore.case = TRUE) ~ "In Process",
+    grepl("não soube|não sabe", f_certification_other, ignore.case = TRUE) ~ "No Information",
+    TRUE ~ "Uncategorized"  # Default fallback
+  ))
+
+Data <- Data %>%
+  mutate(
+    certificate_score = rowSums(
+      select(., starts_with("f_certification_types/") & !matches("other_(please_specify)")) %>%
+        mutate(across(everything(), as.numeric)), na.rm = TRUE),
+  )
+
+Data <- Data %>%
+  mutate(certificate_score=ifelse(certification_grouped == "No Certification", 0, certificate_score))
+```
+
+### 17.3 compare the question on average labour cost with the detailed labour cost calculation
+
+```{r}
+# Count farmers where the condition is met
+Data %>%
+  filter(`f_focus_labour_costs_season_per_hectare` != `cal_labour_cost`) %>%
+  summarise(count = n())
+# Filter the data and tabulate the uuid when f_focus_labour_costs_season_per_hectare is different from cal_labourcost
+labour_subset<- Data %>%
+  filter((f_focus_labour_costs_season_per_hectare*f_focus_crop_size_hectare) != cal_labour_cost) %>%
+  select(`_uuid`, f_focus_labour_costs_season_per_hectare, f_focus_crop_size_hectare, cal_labour_cost)  # Select relevant columns
+
+#Visualize
+
+
+Data %>%
+  ggplot(aes(x = `cal_labour_cost`, y = (`f_focus_labour_costs_season_per_hectare`*f_focus_crop_size_hectare))) +
+  geom_point(color = "darkgreen", alpha = 0.7) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") + # Line where x = y
+  labs(
+    title = "Comparison of Labour Costs",
+    x = "Calculated Labour Cost",
+    y = "Focus Labour Costs Season"
+  ) +
+  theme_minimal()
+```
+
+# Section 4. Prepare exports
+
+## 4.1 Prepare codebook
+
+First we check whether we need more input on the calculated variables to add them to the future codebook.
+
+```{r}
+#Create alignment in codebook
+survey_questions <- survey_questions %>%
+  rename(variable = name)
+#
+# Check if each variable in Data is a calculated variable or from the question library
+variable <- ls(Data)
+data <- data.frame(variable)
+
+# Compare against survey questions
+data$in_survey_questions <- data$variable %in% survey_questions$variable
+
+# Filter variables not found in survey questions
+not_in_survey <- data %>%
+  filter(!in_survey_questions) %>%
+  select(variable)
+
+# Compare against transformed variables
+data$in_vars_transformed <- data$variable %in% vars_transformed$variable
+
+# Check manually for any variables not in vars_transformed
+# (You can print 'data' to review)
+
+# Append calculated variables to survey questions
+calculated_variables <- vars_transformed %>%
+  filter(variable %in% not_in_survey$variable)
+
+# Merge calculated variables into survey questions
+survey_questions <- bind_rows(survey_questions, calculated_variables)
+
+# Remove variables from codebook that are not in Data
+survey_questions <- survey_questions[survey_questions$variable %in% names(Data), ]
+
+```
+
+## 4.2a Creating codebook with all survey variables that are in the data and all calculated variables defined.
+
+```{r}
+# Remove variables from codebook that are not in Data
+survey_questions <- survey_questions[survey_questions$variable %in% names(Data), ]
+
+# Create a dataframe from the names of Data and rename the first column to "variable"
+first_row_data <-as.data.frame (names(Data)) %>%
+  rename(variable =1)
+
+# Create a dataframe from the 'variable' column of survey_questions
+survey_questions_df <- survey_questions %>%
+  select(variable) %>%
+  as.data.frame()
+
+
+# Perform a left join to check which variables from survey_questions are in first_row_data
+merged_result_in <- survey_questions_df %>%
+  left_join(first_row_data, by = "variable", suffix = c(".survey", ".data")) %>%
+  mutate(in_data = ifelse(!is.na(variable), "Yes", "No"))  # Add a column to indicate if the variable is present in first_row_data
+
+# Save the result to an Excel file
+write.xlsx(merged_result_in, "survey_questions_comparison.xlsx")
+
+# Select the "in_data" column for further processing if needed
+merged_result_in <- merged_result_in %>%
+  select(variable, in_data)  # Select 'variable' and 'in_data' columns
+
+# Merge calculated variables into survey questions
+survey_questions <- bind_rows(survey_questions, calculated_variables)
+
+```
+
+## 4.2b Keep checking whether all survey questions are somehow described.
+
+Continue till the below created Excel file doesn't give you any variables anymore. It may mean that you need to manually add a survey questions to the codebook or the to file with calculated or transformed variables. We ignore the multiple choice created variables.
+
+The file creates 2 sheets
+
+1.  First we check for variables present in the Data but not described in survey_questions
+2.  Next we check for variables in the survey_questions but not in the Data
+
+```{r}
+# Extract column names from Data
+data_vars <- colnames(Data)
+
+# Filter out variable names ending with an underscore followed by a number
+filtered_data_vars <- data_vars[!grepl("_\\d+$", data_vars)]
+
+# Extract the variables from the survey_questions dataset
+survey_vars <- survey_questions$variable
+
+# Find the variables in filtered_data_vars that are not in the survey_questions$variable column
+missing_vars_data <- setdiff(filtered_data_vars, survey_vars)
+
+# Find the variables in survey_questions that are not in Data
+missing_vars_survey <- setdiff(survey_vars, filtered_data_vars)
+
+# Create data frames for both results
+missing_vars_data_df <- data.frame(missing_in_survey = missing_vars_data)
+missing_vars_survey_df <- data.frame(missing_in_data = missing_vars_survey)
+
+# Exclude specific columns from missing_vars_data_df
+exclude_prefixes <- c("f_types_crops/", "f_focus_crop_type/", "f_coffee_processing/", 
+                      "f_focus_quant_level_reasons/", "f_certification_types/", 
+                      "f_focus_production_costs_types/", "f_inputs_source/", 
+                      "f_inputs_challenges_types/", "f_crop_labour_types/", 
+                      "f_crop_labourer_types/", "f_inputs_usage_types/", 
+                      "f_other_costs_types/", "f_mech_equip_type/", 
+                      "f_nonmech_equip_type/", "f_materials_other_type/", 
+                      "f_soil_management/", "f_soil_management_challenges_cover_crops/", 
+                      "f_soil_management_fertility/", 
+                      "f_soil_management_challenges_organic_matter/", 
+                      "f_biodiversity_conservation/", 
+                      "f_biodiversity_conservation_challenges_agrochemicals/", 
+                      "f_biodiversity_conservation_challenges_preservation_areas/", 
+                      "f_water_management/", 
+                      "f_water_management_challenges_efficient_water_use/", 
+                      "f_water_management_challenges_wastewater_management/", 
+                      "f_enabling_env/",
+                      "f_tech_assistance_provider_rural/",
+                      "f_tech_assistance_provider_imss/",
+                      "f_sust_farming_income/",
+                      "f_sust_benefits/",
+                      "f_sust_challenges/",
+                      "f_trees_purpose/",
+                      "f_trees_no_plant/",
+                      "f_trees_regenerative_practices/",
+                      "f_livestock_income_type/",
+                      "f_offfarm_income_sources/",
+                      "f_ownership_type/",
+                      "hh_services_received/",
+                      "f_farmer_organisation_financial_interactions/",
+                      "f_soil_management_challenges_fertility/",
+                      "f_soil_management_challenges_weed_management/")
+missing_vars_data_df <- missing_vars_data_df %>%
+  filter(!sapply(missing_in_survey, function(x) any(sapply(exclude_prefixes, function(prefix) grepl(paste0("^", prefix), x)))))
+
+# Save the missing variables to a separate Excel file with two sheets
+write.xlsx(list(MissingInSurvey = missing_vars_data_df, MissingInData = missing_vars_survey_df),
+           "missing_variables_comparison.xlsx", rowNames = FALSE)
+
+```
+
+## 4.3 Prepare anonymized and non-anonymized datasets
+
+1.  Anonymized data + codebook
+
+-   Cleanded data
+-   Raw data
+
+2.  Non-anonymized data + codebook
+
+-   Cleaned data
+-   Raw data
+
+```{r}
+
+data_delivery <- paste(year,"_",case,"_",commodity,"_",country,".xlsx", sep = "")
+
+# 1. Anonymize the cleaned data
+Data_anonymized <- Data %>%
+  select(
+    -c(start, end,
+       #deviceid, subscriberid, simid, devicephonenum, 
+       ),    # Time and device info
+    -c(enumerator,  
+       farmer_sample, name_of_farmer, mobile_number_farmer)              # Personal details
+  )
+
+# 2. Anonymize the uncleaned (raw) data
+Data_raw_anonymized <- Data_raw %>%
+  select(
+    -c(start, end,
+       #deviceid, subscriberid, simid, devicephonenum, 
+       ),    # Time and device info
+    -c(enumerator, 
+       farmer_sample, name_of_farmer, mobile_number_farmer)              # Personal details
+  )
+
+# 3. Prepare the non-anonymized data for the second dataset
+non_anonymized_sets <- list(
+  "Codebook_questions" = survey_questions,
+  "Codebook_choices"= questions_choices,
+  "Cleaned Data (Non-anonymized)" = Data,         # Keep all data (including personal data)
+  "Raw Data (Non-anonymized)" = Data_raw,          # Keep all data (including personal data)
+  "Cleaned Data_activity" = Data_activities,
+  "Raw Data_activity"= Data_activities_raw,
+  "Cleaned Data_labour" = Data_labour,
+  "Raw Data_labour " = Data_labour_raw
+)
+
+# 4. Prepare the anonymized data for the first dataset
+anonymized_sets <- list(
+  "Codebook_questions" = survey_questions,
+  "Codebook_choices"= questions_choices,
+  "Cleaned Data (Anonymized)" = Data_anonymized,  # Anonymized cleaned data
+  "Raw Data (Anonymized)" = Data_raw_anonymized,   # Anonymized raw data
+  "Cleaned Data_activity" = Data_activities,
+  "Raw Data_activity" = Data_activities_raw,
+  "Cleaned Data_labour" = Data_labour,
+  "Raw Data_labour" = Data_labour_raw
+)
+
+# 5. Write the anonymized data to an Excel file
+write.xlsx(anonymized_sets, file = paste0("anonymized_data_", data_delivery))
+
+# 6. Write the non-anonymized data to an Excel file
+write.xlsx(non_anonymized_sets, file = paste0("non_anonymized_data_", data_delivery))
+
+```
+
+```{r}
+#Productivity check
+
+productivity <- Data %>%
+    mutate(focus_product_min_sold_kg = cal_focus_quant_prod_kg - cal_focus_quant_sold_kg) %>%
+
+    select(`_uuid`,
+           enumerator,
+           f_focus_crop_type,
+           f_unit_land,
+           f_size,
+           f_focus_crop_size,
+           cal_focus_productivity_kg_hectare,
+           f_focus_quant_prod,
+           f_focus_measurement_prod,
+           cal_focus_quant_prod_kg,
+           f_focus_quant_sold,
+           f_focus_measurement_sold,
+           cal_focus_quant_sold_kg,
+           focus_product_min_sold_kg,
+           f_focus_price,
+           f_focus_quant_lost_forecasted,
+           cal_focus_quant_lost,
+           f_focus_quant_prod_2023,
+           f_focus_measurement_prod_2023,
+           f_focus_quant_sold_2023,
+           f_focus_measurement_sold_2023
+           )
+  
+write.xlsx (productivity, file = "productivity_check.xlsx", overwrite = TRUE)
+
+
+subset_area <- Data %>%
+  select(`_uuid`, enumerator, f_focus_crop_size, f_coffee_tree_area_age_0_to_4, f_coffee_tree_area_age_5_to_10, f_coffee_tree_area_age_11_to_20, f_coffee_tree_area_age_21_to_30, f_coffee_tree_area_age_30plus, f_coffee_tree_age_all)
+
+write.xlsx (subset_area, file = "Land_area_check.xlsx", overwrite = TRUE)
+```
+
+```{r}
+Costs <- Data %>%
+    select(`_uuid`,
+           enumerator,
+           name_of_farmer,
+           contains("cost")) %>%
+  select(-c(starts_with("f_focus_production_costs_types/"), starts_with("f_other_costs_types/")
+           ))%>%
+  select(-c(f_focus_production_costs_types, f_focus_production_costs_primary, f_focus_production_costs_secondary, f_other_costs_types, f_equip_costs_yn, f_land_costs_yn))
+  
+write.xlsx (Costs, file = "Costs_check.xlsx", overwrite = TRUE)
+
+```
+
+```{r}
+Input_Costs <- Data %>%
+    select(`_uuid`,
+           enumerator,
+           name_of_farmer,
+           f_focus_crop_type,
+           contains("f_inputs_costs"),
+           cal_inputs_costs,
+           cal_inputs_costs_kg)
+  
+write.xlsx (Input_Costs, file = "Input_Costs_check.xlsx", overwrite = TRUE)
+```

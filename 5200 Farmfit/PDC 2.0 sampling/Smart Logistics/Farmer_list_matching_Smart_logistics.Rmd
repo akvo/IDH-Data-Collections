@@ -1,0 +1,210 @@
+
+---
+title: "Farmer_list_matching"
+output: html_document
+date: "2023-07-25"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Import the personal information file of the PDC 1 from the case.
+
+```{r}
+baseline <- read_excel("pi_smart_logistics.xlsx")
+baseline$identifier <- gsub("-", "", baseline$identifier)
+
+full_data <- read_excel("2021-03-19_smart logistics_anom.xlsx")
+full_data <- full_data %>% select(c("identifier", "hh_farmer_gender"))
+
+baseline <- baseline %>% left_join( full_data, by="identifier")
+
+```
+
+```{r}
+table(baseline$hh_farmer_gender)
+```
+
+Import the available farmer list for endline.
+
+```{r, include = FALSE}
+farmer_list_endline_machakos <- read_excel("IDH ENDLINE SURVEY FARMERS LIST (1).xlsx", sheet = 1)
+farmer_list_endline_nakuru <- read_excel("IDH ENDLINE SURVEY FARMERS LIST (1).xlsx", sheet = 2)
+```
+
+```{r}
+table(farmer_list_endline_machakos$GENDER)
+```
+
+```{r}
+table(farmer_list_endline_nakuru$GENDER)
+```
+
+We continue here with Nakaru for matching.
+
+```{r, include = FALSE}
+# remove (254) from the mobile number column
+farmer_list_endline_nakuru$CONTACTS <- gsub("\\(254\\)", "", farmer_list_endline_nakuru$CONTACTS)
+
+# Rename the CONTACTS column to mobile_number_farmer
+colnames(farmer_list_endline_nakuru)[colnames(farmer_list_endline_nakuru) == "CONTACTS"] <- "mobile_number_farmer"
+
+```
+
+## Matching 
+
+We can try and match farmers with a left join function
+
+```{r}
+merged_data <- baseline %>% left_join(farmer_list_endline_nakuru, by="mobile_number_farmer")
+```
+
+```{r}
+# create now column to indicate whether there is a match or not 
+merged_data$match <- ifelse(is.na(merged_data$`#`), FALSE, TRUE)
+```
+
+```{r}
+table(merged_data$match, merged_data$hh_farmer_gender)
+```
+
+
+
+## Match to retrieve sample = starting from farmer list 
+
+```{r}
+# Merge baseline on mobile number 
+farmer_list_endline_nakuru <- farmer_list_endline_nakuru %>% left_join(baseline, by = "mobile_number_farmer")
+
+farmer_list_endline_nakuru <- farmer_list_endline_nakuru %>% select(-c("pi_location_cascade_county", "pi_location_cascade_sub_county", "pi_location_cascade_ward","pi_location_cascade_village","pi_location_other", "pi_location_other_first_admin", "pi_location_other_second_admin", "pi_location_other_third_admin", "pi_location_other_village", "pi_geolocation_1_latitude", "pi_geolocation_1_longitude", "pi_geolocation_1_elevation","hh_farmer_gender", "name_of_farmer"))
+
+farmer_list_endline_nakuru$match <- ifelse(is.na(farmer_list_endline_nakuru$identifier), FALSE, TRUE)
+colnames(farmer_list_endline_nakuru)[colnames(farmer_list_endline_nakuru) == "identifier"] <- "match_phone"
+
+```
+
+
+Make the sample
+
+```{r}
+sample <- farmer_list_endline_nakuru[farmer_list_endline_nakuru$match == TRUE,]
+
+```
+
+Make random sample of 112 male farmers Nakuru
+
+```{r}
+male_nakuru <- farmer_list_endline_nakuru[(farmer_list_endline_nakuru$GENDER=="Male" & farmer_list_endline_nakuru$match == FALSE),]
+
+# Set the seed for reproducibility (optional)
+set.seed(123)
+
+# Number of rows to randomly pick
+n_rows_to_pick <- 112
+
+# Get the total number of rows in the dataframe
+total_rows <- nrow(male_nakuru)
+
+# Randomly select 51 row indices without replacement
+random_row_indices <- sample(1:total_rows, n_rows_to_pick, replace = FALSE)
+
+# Extract the randomly selected rows from the dataframe
+male_nakuru_sample <- male_nakuru[random_row_indices, ]
+```
+
+Make random sample of 109 female farmers from Nakuru
+
+```{r}
+female_nakuru <- farmer_list_endline_nakuru[(farmer_list_endline_nakuru$GENDER=="Female" & farmer_list_endline_nakuru$match == FALSE),]
+
+# Set the seed for reproducibility (optional)
+set.seed(123)
+
+# Number of rows to randomly pick
+n_rows_to_pick <- 109
+
+# Get the total number of rows in the dataframe
+total_rows <- nrow(female_nakuru)
+
+# Randomly select 51 row indices without replacement
+random_row_indices <- sample(1:total_rows, n_rows_to_pick, replace = FALSE)
+
+# Extract the randomly selected rows from the dataframe
+female_nakuru_sample <- female_nakuru[random_row_indices, ]
+```
+
+Make random sample of 6 male farmers from Machakos
+
+```{r}
+#rename column for matching later
+colnames(farmer_list_endline_machakos)[colnames(farmer_list_endline_machakos) == "CONTACTS"] <- "mobile_number_farmer"
+
+```
+
+```{r}
+male_machakos <- farmer_list_endline_machakos[(farmer_list_endline_machakos$GENDER=="Male"),]
+
+# Set the seed for reproducibility (optional)
+set.seed(123)
+
+# Number of rows to randomly pick
+n_rows_to_pick <- 6
+
+# Get the total number of rows in the dataframe
+total_rows <- nrow(male_machakos)
+
+# Randomly select 51 row indices without replacement
+random_row_indices <- sample(1:total_rows, n_rows_to_pick, replace = FALSE)
+
+# Extract the randomly selected rows from the dataframe
+male_machakos_sample <- male_machakos[random_row_indices, ]
+
+male_machakos_sample$match_phone <- NA
+male_machakos_sample$match <- FALSE
+
+```
+
+Make random sample of 40 female farmers from Machakos
+
+```{r}
+female_machakos <- farmer_list_endline_machakos[(farmer_list_endline_machakos$GENDER=="Female"),]
+
+# Set the seed for reproducibility (optional)
+set.seed(123)
+
+# Number of rows to randomly pick
+n_rows_to_pick <- 40
+
+# Get the total number of rows in the dataframe
+total_rows <- nrow(female_machakos)
+
+# Randomly select 51 row indices without replacement
+random_row_indices <- sample(1:total_rows, n_rows_to_pick, replace = FALSE)
+
+# Extract the randomly selected rows from the dataframe
+female_machakos_sample <- female_machakos[random_row_indices, ]
+
+female_machakos_sample$match_phone <- NA
+female_machakos_sample$match <- FALSE
+```
+
+Merge the different random sets with the recurring farmers 
+
+```{r}
+sample <- rbind(sample, male_nakuru_sample, female_nakuru_sample, male_machakos_sample, female_machakos_sample)
+```
+
+Export the full farmer list and the sample.
+
+```{r}
+#full farmer list
+farmer_list_endline_nakuru_2 <- farmer_list_endline_nakuru %>% select(-c(match_phone, match))
+full_list <- rbind(farmer_list_endline_nakuru_2, farmer_list_endline_machakos)
+```
+
+```{r}
+write.xlsx(full_list, "Farmer_list_smart_logistics_endline.xlsx")
+write.xlsx(sample, "sample_smart_logistics_endline.xlsx")
+```
+

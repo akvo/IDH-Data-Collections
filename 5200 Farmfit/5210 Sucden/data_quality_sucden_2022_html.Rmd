@@ -1,0 +1,127 @@
+---
+title: "Data delivery - Sucden - All data"
+author: "Akvo"
+date: "7-03-2022"
+focus crop: "Cocoa"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = FALSE, message=FALSE, warning=FALSE, cache=FALSE)
+knitr::read_chunk('data_cleaning_sucden_2022_farmfit.R')
+options(knitr.kable.NA = '-')
+
+## Akvo colour scheme
+# Akvo Orange red:	    HEX #EA5547 rgb(234,85,71)
+# Akvo Blue:      	    HEX #404898 rgb(64,72,152)
+# Akvo Turquoise green:	HEX #03AD8C rgb(3,173,140)
+# Akvo Pink:          	HEX #E04D95 rgb(224,77,149)
+
+## Akvo fonts
+# Roboto Condensed
+# Assistant
+
+sdm_company = 'Sucden'
+country = 'Ivory Coast'
+sdm_crop = 'Cocoa'
+
+```
+
+
+```{r code = readLines("data_cleaning_sucden_2022_farmfit.R")}
+```
+
+<!-- ```{r repeated groups} -->
+<!-- ``` -->
+
+<!-- ```{r PPI} -->
+<!-- ``` -->
+
+<!-- ```{r Numerical descriptives} -->
+<!-- ``` -->
+
+<!-- ```{r Categorical descriptives} -->
+<!-- ``` -->
+
+<!-- ```{r write} -->
+<!-- ``` -->
+
+# `r sdm_company` {.tabset}
+
+#### Data Cleaning Notes
+
+#### Introduction
+
+This document contains details of the `r sdm_company` primary data collection and data cleaning steps. Please read the PDC process guide (SamePage: Primary Data Collection) before consulting this document.
+
+##### Number of farmers removed from the set
+ 
+1. Initially `r nr_participants_raw` farmers were targeted for this data collection.
+2. Of the `r nr_participants_raw`, `r nr_participants_ic` farmers participated.
+
+##### Sample charasteristics:
+
+To get an accurate picture of the SDM farmers we take a random sample of the farmer group. However, we often run into issues with the farmer list supplied by the SDM company. Farmers for example might not have an address and we are dependent on a local contact person to take us to the right farmer. We often find the farmer is not the farmer that is part of the sample. As the random component of sampling is very important for the reliability of our findings we try to register whether the farmers we speak to were part of the original sample. 
+
+The amount of farmers part of the original sample in case of `r sdm_company` can be found below:
+
+`r kable(table(Data$farmer_sample))`
+
+The number of farmers surveyed per cooperative:
+
+`r kable(table(Data$cs_coop_member_name))`
+
+#### Data Cleaning Steps
+
+#### Introduction
+
+This document contains an overview of the different steps that are taken to clean the FarmFit data for the `r sdm_company`. These steps have been drawn up in cooperation with IDH-FarmFit analysts and will be discussed in the following order:
+
+1.	Removing Farmers from the Set
+2.	Text cleaning
+3.	Determining and handling outliers
+4.	Looking at missing values
+5.	Anonymizing 
+6.  Repeated question groups
+7.  Case specific adjustments
+  
+#### Removing Farmers from the Set  
+
+At the moment farmers are only removed with they refuse to participate to the survey. The only data we have from these farmers is the name, location and sometimes a phone number.  
+
+#### Text Cleaning
+
+In order to make the FarmFit data more accessible a few general steps are taken to clean the data.  
+
+1.	All columns and text values are set to lower case  
+2.	Flow sets spaces to points; we set them to ‘_’.  
+3.	Dummy variables get the prefix ‘X..OPTION…’ by Flow, these are removed from the cleaned data set.
+4.	A few free text options that have been found often in the data are set to similar text in order to make them comparable. An example is: ‘dont know’, ‘doesn’t know’, ‘I am not sure’ are all changed to: ‘I don’t know’.  
+5.	In case the measurement of crop is supplied by farmers in bags, boxes, crates, etc. In the survey the farmer is asked about the number of kilograms the applicable measurement contains. In the cleaned data the measurements are set to kilograms, which can be seen in the column heading (_kg).  
+6.	A measurement of an area is generally supplied by farmers in acres, kilometers squared or hectares. In the cleaned data the measurements are set to acres, which can be seen in the column heading (_acre).  
+7.	Some redundant columns are removed, for example columns with Flow details unimportant for the FarmFit analyses.  
+  
+#### Determining and Handling Outliers  
+
+To determine outliers for the numerical questions of the survey, a cut off of three standard deviations from the corresponding mean is set. All values are compared to this cut off. When the value is either higher than three standard deviations above the mean or lower than three standard deviations below the mean, it is set to ‘9997’.  
+
+#### Looking at Missing Values  
+
+The structure of the FarmFit survey prevents having actual missing values. All multiple-choice questions have the options ‘I don’t know’ and ‘I prefer not to say’ and are mandatory. The numerical questions are also mandatory. Enumerators are instructed to answer them with ‘9999’ in case a farmer doesn’t know the answer, and ‘9998’ when the farmer doesn’t want to give the answer. This way all missing values are defined.
+In case of numerical questions, these values are not usable in aggregations and will give incorrect descriptive values. Therefore, all values containing ‘9999’, ‘9998’ and ‘9997’, resulting from outlier handling, are set to ‘NA’. 
+
+#### Anonymizing
+
+In order to anonymize the data farmer names, phone numbers, geolocation (longitude and latitude) and location except from the district is removed from the set. 
+  
+#### Repeated question groups
+
+When recording the amount of crop produced, sold, lost or used for own consumption, we use 'repeated question groups'. This means farmers can procide input per season or for the whole year. In the cleaned data we only present one row of calculated values for each farmer. So if farmers reported production for 2 seasons, cal_focus_quant_prod_kg captures the total production during 2 seasons. For the amount produced, sold, lost and used for own consumption, we add the values of every season to get an idea of what happens throughout the year. 
+
+#### Case specific adjustments
+We learned that farmers reported the price in one of the 2 following ways: approach 1) The price per bag of cocoa or approach 2) the price per kg of cocoa. The variable cal_focus_price captures the price per kg, which is either calculated in case of approach 1, or the price that was reported by the farmers (approach 2).From experts we learned that the price/kg ranges from 700-1000CFA/kg depending on the time of the year. We have not adjusted data of  farmers that reported a price above or below this range considering agreements made with IDH, however this is a suggested step of data cleaning.
+
+Likewise, farmers reported the quantities produced in different ways: approach 1) The quantity in metric tons, 2) the number of bags, 3) the total quantities in kg. The variable cal_focus_quant_prod_kg, cal_focus_quant_sold_kg, cal_focus_quant_lost_kg,report the total quantities. In case farmers applied approach 1 or 2, we conducted calculations to come to the total quantity produced. The variable "quantities_interpretation" reflects how the quantities should be interpreted. This list was consulted with all enumerators.
+
+In the majority of cases, farmers sell all that they produce.

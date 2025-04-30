@@ -1,0 +1,1741 @@
+---
+title: "Data_cleaning_nigeria_palm_oil"
+output: html_document
+date: "2025-04-07"
+---
+
+```{r setup, include=FALSE}
+rm(list = ls(), envir = .GlobalEnv)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This script is developed to clean data from IDH cases in a standardized way.
+
+### Preparation
+
+Load the necessary packages.
+
+```{r, include = FALSE}
+library(here); library(readxl); library(openxlsx);
+library(plyr); library(dplyr); library(tidyr); library(tidylog); library(tidyselect)
+library(stringr); library(data.table); library(reshape2)
+library(zoo);library(splitstackshape) ;library(tidyverse); library(magrittr)
+```
+
+Fill in the basic case information.
+
+```{r}
+case = "Okomu"
+year = "2025"
+focus_crop = "palm_oil"
+country = "Nigeria"
+```
+
+Make a new Github map with the project name where this R Markdown file is stored, together with the raw data and the survey form downloaded from Flow. Fill in the right file names in the code below so the variables data_filename and survey_filename refer to the correct file.
+
+```{r}
+data_filename <- "Farmer_survey_Okomu_Nigeria_-_Palm_oil_-_all_versions_-_English_-_2025-04-07-12-26-10 (1).xlsx"
+survey_filename <- "azgx92zfMV8LeoNoVnsQvN.xlsx"
+```
+
+Describe the files that will be created in the script here.
+
+```{r}
+pi_filename <- paste("pi_",year,"_",case,"_",focus_crop,".xlsx", sep="")
+data_delivery <- paste(year,"_",case,"_anom_",focus_crop,"_baseline",".xlsx", sep = "")
+```
+
+Import the data files that can be found in the map Analytics-Guild -\> IDH -\> Templates and input files for data delivery. Copy them in the project map.
+
+```{r}
+question_library <- readxl::read_excel("IDH Farmer Survey Builder.xlsx", sheet = "survey")
+
+vars_transformed <- read_excel("variables with transformation_2.xlsx") 
+household_demographics  <- read_excel("household_demographics_var_2.xlsx") 
+vars_dashboard <- read_excel("variable names input dashboard_2.xlsx") 
+
+```
+
+
+Define functions that will be needed later in the script.
+
+```{r}
+# DATA TYPE Set factors to integers
+factor_to_int <- function(x){
+  if (is.factor(x) || is.character(x)) {
+    return(as.numeric(as.character(x)))
+  } else {
+    return(as.numeric(x))
+  }
+}
+
+# Find and replace outliers
+outlier_detection <- function(x){
+  ifelse(
+    x > (mean(x, na.rm=TRUE) + sd(x, na.rm=TRUE)*3) |
+      x < (mean(x, na.rm=TRUE) - sd(x, na.rm=TRUE)*3), 
+    9997,
+    x
+  )
+}
+
+# Avoid scientific notation in printed numbers
+options(scipen = 999)  
+
+# count values without NA
+count_n <- function(x){sum(!is.na(x))}
+```
+
+### Import data
+
+We read the data downloaded. The below is for a KOBO format. On Data we will perform cleaning. Data_raw will be added to the data delivery as the full raw data file without transformations. Only the personal information variables are removed.
+
+**Note**: specify the correct sheet name
+
+```{r, include = FALSE}
+# Data for transformation
+Data <- read_excel(data_filename, sheet = "Farmer survey Okomu Nigeria")
+focus_repeat_revenue <- read_excel(data_filename, sheet = "focus_repeat_revenue")
+
+# Read file with survey structure
+survey_questions <- read_excel((survey_filename),sheet ="survey")
+questions_choices <- read_excel ((survey_filename), sheet ="choices")
+```
+
+Execute mapping so that columns are not questions but variable names. 
+
+```{r}
+Data <- Data %>%
+  rename(`Is this farmer part of the Okomu database ?` = `Is this farmer part of the Okomu database ?...14`)
+```
+
+```{r}
+library(stringdist)
+
+# Prepare clean mapping
+question_to_variable <- survey_questions %>%
+  filter(!is.na(`label::English`)) %>%
+  mutate(
+    label_clean = tolower(trimws(`label::English`)),
+    name_clean = trimws(name)
+  ) %>%
+  select(label_clean, name_clean)
+
+# Create a function to rename a column if it starts with a label
+rename_column <- function(col_name, mapping) {
+  col_name_clean <- tolower(trimws(col_name))
+  
+  # Try to find a match where the label is a prefix of the column name
+  matches <- mapping$label_clean[sapply(mapping$label_clean, function(lbl) startsWith(col_name_clean, lbl))]
+  
+  if (length(matches) > 0) {
+    best_label <- matches[which.max(nchar(matches))]  # choose longest matching label
+    var_name <- mapping %>% filter(label_clean == best_label) %>% pull(name_clean)
+    
+    suffix <- substr(col_name, nchar(best_label) + 2, nchar(col_name))  # +2 accounts for the slash
+    return(paste0(var_name, "/", suffix))
+  }
+  
+  return(col_name)  # fallback
+}
+
+# Apply the renaming logic
+new_names <- sapply(names(Data), rename_column, mapping = question_to_variable)
+names(Data) <- new_names
+
+# Step 4: Remove columns that are entirely NA
+Data <- Data %>%
+  select(where(~ !all(is.na(.))))
+
+#Remove "/" at the end of the variable name
+names(Data) <- gsub("/$", "", names(Data))
+
+#Delete columns from previous versions of the survey
+Data <- Data[, -c(535:542)]
+
+```
+
+```{r}
+# Prepare the mapping
+question_to_variable <- survey_questions %>%
+  filter(!is.na(`label::English`)) %>%
+  select(`label::English`, name)
+
+mapping_dict <- setNames(question_to_variable$name, question_to_variable$`label::English`)
+
+# Rename columns in Data, including support for question_text/answer_option format
+new_names <- names(Data)
+
+new_names <- sapply(new_names, function(col_name) {
+  if (col_name %in% names(mapping_dict)) {
+    # Exact match
+    return(mapping_dict[[col_name]])
+  } else if (grepl("/", col_name, fixed = TRUE)) {
+    # Handle multiple choice columns
+    parts <- strsplit(col_name, "/", fixed = TRUE)[[1]]
+    question_part <- parts[1]
+    option_part <- parts[2]
+    
+    if (question_part %in% names(mapping_dict)) {
+      return(paste0(mapping_dict[[question_part]], "/", option_part))
+    }
+  }
+  return(col_name)  # Return as-is if no match
+})
+
+# Apply new column names
+names(Data) <- new_names
+
+# Verify the result
+head(Data)
+```
+```{r}
+# Rename columns at position 105 and 106
+names(Data)[113:114] <- c(
+  "f_focus_production_costs_types/Nonmech_Buying_renting",
+  "f_focus_production_costs_types/Mech_Buying_renting"
+)
+names(Data)[113:114]
+
+```
+
+```{r}
+# Check for any duplicate names
+duplicated_names <- names(Data)[duplicated(names(Data))]
+duplicated_names
+```
+
+
+```{r}
+# Raw data 
+Data_raw <- Data
+
+#Anonymise
+Data_raw <- Data_raw %>%
+  select(-starts_with("pi_"), -name_of_farmer, -mobile_number_farmer)
+
+Data_focus_repeat_raw <- read_excel(data_filename, sheet = "focus_repeat_revenue")
+
+## ---- Extract personal information ----
+pi_information <- Data %>%
+ # select(-contains("--option--")) %>% #how to deal with that in kobo format?
+  rename_all(funs(tolower)) %>%
+  select(uuid,
+         name_of_farmer,
+         mobile_number_farmer,
+         contains("pi_")) #-contains("ppi")) 
+
+pi_info<- list("Personal information" = pi_information)
+
+write.xlsx(pi_info, file=pi_filename) #pi_filename was created in the beginning of the script
+
+```
+
+Adjust the survey file to be ready for analysis. We now have a clear overview of the survey questions asked in this case. The below code is for Kobo format
+
+```{r, include = FALSE}
+# SURVEY QUESTION SHEET
+
+survey_questions %<>%
+  # Select relevant columns: type, name, label in English, and relevant
+  select(type, name, `label::English`, relevant) %>%
+  # Trim any trailing spaces from character columns
+  mutate(across(where(is.character), str_trim)) %>%
+  # Rename "label: English" to a simpler "label"
+  rename(label = `label::English`) %>%
+  # Convert all data to lowercase for consistency
+  mutate(across(everything(), tolower)) %>%
+  # Filter out rows where the 'type' column is missing (empty rows)
+  filter(!is.na(type)) %>%
+  # Filter out rows where the 'label' column is missing (empty rows)
+  filter(!is.na(label)) %>%
+  # Filter out rows where the type is 'note', 'begin_group', or 'begin_repeat'
+  filter(!type %in% c("note", "begin_group", "begin group", "begin_repeat"))
+
+# CHOICES QUESTION SHEET
+questions_choices %<>%
+  # Select relevant columns: list_name, name, label in English, and label in Portuguese
+  select(list_name, name, `label::English`) %>%
+  # Trim any trailing spaces from character columns
+  mutate(across(where(is.character), str_trim)) %>%
+  # Rename "label: English" to "label" and "list_name" to "choices_name"
+  rename(label = `label::English`, choices_name = list_name) %>%
+  # Convert all data to lowercase for consistency
+  mutate(across(everything(), tolower)) %>%
+  # Filter out rows where the 'choices_name' column is missing (empty rows)
+  filter(!is.na(choices_name))
+```
+
+What are the numerical columns? How many participants?
+
+```{r}
+# Collect the different variables, numerical questions:
+numerical_columns <- survey_questions %>%
+  filter(type %in% c("integer", "decimal")) %>%
+  select("name") %>% pull()
+numerical_columns
+#Ensure those columns in Data are numeric
+Data <- Data %>%
+  mutate(across(all_of(numerical_columns), ~as.numeric(.), .names = "{.col}"))
+
+#check which columns are now numeric
+numeric_check <- sapply(Data[numerical_columns], is.numeric)
+print(numeric_check)
+## ---- Count initial number of participants
+nr_participants_raw <- length(unique(Data$`_uuid`))
+nr_participants_raw
+```
+
+# Section 1. Cleaning the data
+
+## 1. Rename variables where necessary
+
+```{r}
+# Rename all columns with "_season" to "_year" because in this dataset we assessed all revenues costs per year 2024 instead of season
+names(Data) <- gsub("_season", "_year", names(Data))
+
+survey_questions <- survey_questions %>%
+  mutate(name = gsub("_season", "_year", name))
+
+#We need to replace hh_loan_agri_source_other with hh_loan_agri_size as this was a mistake in the template
+Data <- Data %>%
+  rename(hh_loan_agri_size = hh_loan_agri_source_other)
+
+survey_questions <- survey_questions %>%
+  mutate(name = ifelse(name == "hh_loan_agri_source_other", "hh_loan_agri_size", name))
+
+Data <- Data %>%
+  mutate(
+    cs_sdm_company_services_years = if_else(uuid == "20250403124310", 4, as.numeric(cs_sdm_company_services_years)),
+    cs_sdm_company_services_years = if_else(uuid == "20250402142509", 5, as.numeric(cs_sdm_company_services_years)),
+    cs_sdm_company_yrs_selling = if_else(uuid == "20250403124310", 4, as.numeric(cs_sdm_company_yrs_selling))
+  )
+
+```
+
+## 2. Standard data cleaning (dates, columns, lowercase, participation, duplicates)
+
+```{r, include = FALSE}
+Data <- Data %>%
+ 
+  # Remove irrelevant columns
+  select(-c(devicephonenum, deviceid, subscriberid, simid, 
+            `__version__`, `_status`, `_submitted_by`, 
+            )) %>%
+  select(-contains("--option--")) %>%
+  
+  # All column names to lowercase
+  rename_all(tolower) %>%
+  
+  # Remove farmers who didn’t participate
+  filter(surv_consent != "Refused to participate") %>%
+  
+  # Remove completely empty columns
+  select(where(~ !all(is.na(.))))
+```
+
+## 3. Other variables
+
+Identify the "other" variables, and combine the values with their parent. Then the "other" variables are removed.
+
+```{r, include = FALSE}
+variables_other <- Data %>% 
+  select(ends_with("_other"), ends_with("_other2")) %>% 
+  names() 
+
+for(other in variables_other){
+  
+  if(any(names(Data) %in% gsub("_other$|_other2$", "", other))){
+    
+    # Fuzzy match? - many spelling mistakes in "other" questions
+    
+    # Combine "other" variables with their parents
+    Data <- Data %>%
+      unite(!!gsub("_other$|_other2$", "", other), 
+            c(gsub("_other$|_other2$", "", other), all_of(other)), 
+            sep="|", remove=FALSE, na.rm=TRUE) %>%
+      select(-other)
+  }
+}
+```
+
+## 4. Correct prices
+
+```{r}
+Data <- Data %>%
+  mutate(f_focus_price = case_when(
+    uuid == "20250402103135" ~ 1800,
+    uuid == "20250403232810" ~ 160000,
+    uuid == "20250402120910" ~ 170000,
+    uuid == "20250403175416" ~ 180000,
+    uuid == "20250403182040" ~ 160000,
+    uuid == "20250403111719" ~ 180000,
+    uuid == "20250402202201" ~ 13000,
+    uuid == "20250405100755" ~ 160000,
+    uuid == "20250404174723" ~ 170000,
+    uuid == "20250405100736" ~ 170000,
+    uuid == "20250404104739" ~ 170000,
+    uuid == "20250406132354" ~ 170000,
+    uuid == "20250406132324" ~ 170000,
+    uuid == "20250406171539" ~ 170000,
+    uuid == "20250406183414" ~ 170000,
+    uuid == "20250403135132" ~ 170000,
+    uuid == "20250406162538" ~ 180000,
+    uuid == "20250405134554" ~ 180000,
+    uuid == "20250406092649" ~ 180000,
+    uuid == "20250406101522" ~ 180000,
+    uuid == "20250406213045" ~ 180000,
+    uuid == "20250404151319" ~ 180000,
+    uuid == "20250403155837" ~ 180000,
+    uuid == "20250407094317" ~ 180000,
+    uuid == "20250406173204" ~ 200000,
+    uuid == "20250406195031" ~ 200000,
+    uuid == "20250406191720" ~ 200000,
+    uuid == "20250403150424" ~ 220000,
+    uuid == "20250404103754" ~ 220000,
+    uuid == "20250403135154" ~ 220000,
+    uuid == "20250406162605" ~ 1400,
+    uuid == "20250404102248" ~ 240000,
+    uuid == "20250404212240" ~ 1300,
+    uuid == "20250402185816" ~ 35000,
+    uuid == "20250404163027" ~ 50000,
+    uuid == "20250402155505" ~ 210000,
+    uuid == "20250403162721" ~ 275000, 
+    uuid == "20250403092515" ~ 180459.7701,# total revenue instead of unit price
+    uuid == "20250402152157" ~ 254.491018,# total revenue instead of unit price
+    uuid == "20250402114502" ~ 1166.666667,# total revenue instead of unit price
+    uuid == "20250402213407" ~ 147,
+    uuid == "20250402163841" ~ 157,
+    uuid == "20250402183452" ~ 157,
+    uuid == "20250402195231" ~ 157,    
+    uuid == "20250402180535" ~ 220,     
+    uuid == "20250402165052" ~ 700,     
+    uuid == "20250404194002" ~ 900, 
+    uuid == "20250403165347" ~ 1300,
+    uuid == "20250402181509" ~ 1300,   
+    uuid == "20250403080923" ~ 1300,       
+    uuid == "20250405201822" ~ 1300, 
+    uuid == "20250406101541" ~ 1300,    
+    uuid == "20250403143947" ~ 1300,    
+    uuid == "20250405112335" ~ 1300, 
+    uuid == "20250402202201" ~ 1300,     
+    uuid == "20250404203517" ~ 1300,  
+    uuid == "20250402145632" ~ 1300,  
+    uuid == "20250403183341" ~ 1300, 
+    uuid == "20250406220011" ~ 1600, 
+    uuid == "20250405204231" ~ 1600,  
+    uuid == "20250404212654" ~ 2200,  
+    uuid == "20250402202519" ~ 3500,  
+    uuid == "20250404163027" ~ 150000, 
+    uuid == "20250405111424" ~ 150000, 
+    uuid == "20250405153409" ~ 150000, 
+    uuid == "20250405172217" ~ 150000, 
+    uuid == "20250406121517" ~ 180000,
+    uuid == "20250406125819" ~ 180000,
+    uuid == "20250405210650" ~ 180000,
+    uuid == "20250403141913" ~ 180000,
+    uuid == "20250406063922" ~ 180000,
+    uuid == "20250406081001" ~ 180000,
+    uuid == "20250404085210" ~ 210000,
+    uuid == "20250402185816" ~ 210000,
+    uuid == "20250404212548" ~ 240000,
+    uuid == "20250403124311" ~ 240000,
+    
+    uuid == "20250405153259" ~ 595.4734961,
+    uuid == "20250406163024" ~ 595.4734961,
+    uuid == "20250406164824" ~ 595.4734961,
+    uuid == "20250406193038" ~ 595.4734961,
+    uuid == "20250405132506" ~ 595.5330554,
+    uuid == "20250402183949" ~ 650.487963565387,
+    uuid == "20250404212917" ~ 650.487963565387,
+    uuid == "20250404081708" ~ 650.487963565387,
+    uuid == "20250405110540" ~ 650.487963565387,
+    uuid == "20250406112656" ~ 650.487963565387,
+    uuid == "20250402150226" ~ 650.553025374105,
+    uuid == "20250405165302" ~ 650.553025374105,
+    uuid == "20250405202116" ~ 650.553025374105,
+    uuid == "20250403183401" ~ 654.319371727749,
+    uuid == "20250405132310" ~ 654.319371727749, 
+    uuid == "20250403123410" ~ 778.660436137072, 
+    uuid == "20250403174509" ~ 778.660436137072, 
+    uuid == "20250402211150" ~ 778.660436137072, 
+    uuid == "20250403203121" ~ 778.660436137072,  
+    
+    uuid == "20250402121653" ~ 778.660436137072,  
+    uuid == "20250406150131" ~ 778.660436137072,  
+    uuid == "20250403194837" ~ 778.660436137072,
+    uuid == "20250405000449" ~ 778.660436137072,
+    uuid == "20250404073806" ~ 778.660436137072,
+    uuid == "20250404163411" ~ 778.660436137072,
+    uuid == "20250404204542" ~ 778.660436137072,
+    uuid == "20250406185145" ~ 778.660436137072,
+    uuid == "20250405164924" ~ 778.738317757009,
+    uuid == "20250406110123" ~ 778.738317757009,
+    uuid == "20250405161238" ~ 180000,
+    
+    TRUE ~ as.numeric(f_focus_price)  # retain existing value for other rows
+  ))
+```
+
+
+## 5. Specific adjustments for quantities and measurement units
+
+This is case specific.
+
+```{r}
+Data <- Data %>%
+  mutate(f_focus_quant_prod = as.numeric(f_focus_quant_prod)) %>%
+  mutate(f_focus_quant_prod = if_else(
+    uuid == "20250407102812",
+    35000,
+    f_focus_quant_prod
+  )) %>%
+  mutate(f_focus_quant_prod = if_else(
+    uuid == "20250403232737",
+    16,
+    f_focus_quant_prod
+  )) %>%
+  mutate(f_focus_quant_prod = if_else(
+    uuid == "20250405161238",
+    68,
+    f_focus_quant_prod
+  )) %>%
+  mutate(f_focus_quant_prod = if_else(
+    uuid == "20250402155505",
+    80,
+    f_focus_quant_prod
+  )) 
+  
+  
+  
+```
+
+```{r}
+Data <- Data %>%
+  mutate(f_focus_quant_sold = as.numeric(f_focus_quant_sold)) %>%
+  mutate(f_focus_quant_sold = if_else(
+    uuid == "20250406191720",
+    40,
+    f_focus_quant_sold
+  )) %>%
+  mutate(f_focus_quant_sold = if_else(
+    uuid == "20250407035159",
+    150,
+    f_focus_quant_sold
+  )) %>%
+  mutate(f_focus_quant_sold = if_else(
+    uuid == "20250405161238",
+    68,
+    f_focus_quant_sold
+  ))
+```
+
+Measurement unit
+
+```{r}
+Data <- Data %>%
+  mutate(f_focus_measurement_sold = if_else(uuid %in% c("20250402103135", "20250406162605","20250403165347","20250402114502"),
+                                            "Number of bunches",f_focus_measurement_sold)) %>%
+  mutate(f_focus_measurement_sold = if_else(uuid=="20250405161238", "Tonnes", f_focus_measurement_sold))
+
+Data <- Data %>%
+  mutate(f_focus_measurement_prod = if_else(uuid=="20250405161238", "Tonnes", f_focus_measurement_prod))
+  
+```
+
+## 6. Handle outliers and missing values
+
+Exclude variables such as quantities, price and farm size to be checked manually.
+
+```{r, include = FALSE}
+excluded_columns <- c("f_size", "f_focus_crop_size", "f_focus_quant_prod", "f_focus_quant_sold", "f_focus_quant_lost", "f_focus_own_consumption") # Replace with actual variable names
+
+# Identify numerical columns for outlier handling, excluding those ending with "_#"
+numerical_columns <- names(Data %>% select_if(is.numeric)) %>%
+  .[!grepl("_\\d+$", .)]  %>%  # Exclude columns ending with "_#"
+  .[!(. %in% excluded_columns)] %>%  # Exclude specific columns
+  .[sapply(Data[.], function(x) length(unique(x)) > 2)]  # Exclude binary columns
+```
+
+The following piece of code will delete outliers. 
+
+!! Make sure to only run this code AFTER the productivity check !! 
+
+```{r, include = FALSE}
+# Apply the outlier detection function to numerical columns
+Data <- Data %>%
+    mutate_at(vars(numerical_columns), funs(outlier_detection)) %>%
+  
+# Replace specific values (9999, 9998, 9997) with NA for numeric columns
+  mutate_if(is.numeric, list(~na_if(., 9999))) %>%
+  mutate_if(is.numeric, list(~na_if(., 9998))) %>%
+  mutate_if(is.numeric, list(~na_if(., 9997)))
+
+# Change "I don't know" and "I prefer not to say" into NAs
+Data <- Data %>%
+  mutate_if(is.character, list(~na_if(., "i don't know"))) %>%
+  mutate_if(is.character, list(~na_if(., "i prefer not to say")))
+
+```
+
+**Data focus revenue repeat**
+
+```{r}
+# Identify numerical columns for outlier handling, excluding those ending with "_#"
+numerical_columns <- names(focus_repeat_revenue %>% select_if(is.numeric)) %>%
+  .[!grepl("_\\d+$", .)]  %>%  # Exclude columns ending with "_#"
+  .[sapply(focus_repeat_revenue[.], function(x) length(unique(x)) > 2)]  # Exclude binary columns
+
+# Apply the outlier detection function to numerical columns
+focus_repeat_revenue <- focus_repeat_revenue %>%
+    mutate_at(vars(numerical_columns), funs(outlier_detection)) %>%
+
+  # Replace specific values (9999, 9998, 9997) with NA for numeric columns
+  mutate_if(is.numeric, list(~na_if(., 9999))) %>%
+  mutate_if(is.numeric, list(~na_if(., 9998))) %>%
+  mutate_if(is.numeric, list(~na_if(., 9997))) %>%
+
+  # Replace "I don't know" or "I prefer not to say" with NA for character columns
+  mutate_if(is.character, list(~na_if(., "i don't know"))) %>%
+  mutate_if(is.character, list(~na_if(., "i prefer not to say")))
+```
+
+## 7. Adjust Farm Size
+
+Adjust the **farm sizes** to acres.
+
+```{r}
+# First check what are the unit measurements reported in this case.
+table(Data$f_unit_land)
+
+#table(Data$f_unit_land_other2)
+```
+
+```{r}
+                             
+```
+
+The code below creates a variable for farm sizes in both acres and hectares. When another option is given as unit of measurement (other than acres or hectares), the code needs to be manually adjusted!
+
+
+```{r, include = FALSE}
+
+#Mutate the different units to acres. We need a farm size in acres for the total farm size, and the size dedicated to focus crop.
+Data <- Data %>%
+  mutate(
+  # First convert to numeric
+    f_size = as.numeric(f_size),
+    f_focus_crop_size = as.numeric(f_focus_crop_size),
+    
+#Convert land size to acres if in hectares
+    f_size_acre = ifelse(f_unit_land == "Hectares", f_size * 2.471, f_size),
+    f_focus_crop_size_acre = ifelse(f_unit_land == "Hectares", f_focus_crop_size * 2.471, f_focus_crop_size),
+#Mutate the different units to hectares. We need a farm size in hectares for the total farm size, and the size dedicated to focus crop.
+    f_size_hectare = ifelse(f_unit_land == "Hectares", f_size, f_size_acre / 2.471),
+    f_focus_crop_size_hectare = ifelse(f_unit_land == "Hectares", f_focus_crop_size, f_focus_crop_size_acre / 2.471))
+```
+
+## 8. Some statistics
+
+```{r}
+# Number of participants who gave informed consent 
+nr_participants_ic <- length(unique(Data$uuid))
+
+# NUMBER OF SEASONS
+number_of_seasons <- max(Data$f_harvest_num, na.rm=TRUE)
+```
+
+# Section 2. Actual income calculation
+
+## 1) Transform unit measurements
+
+Each unit measurement variables needs to be aligned. let's handle the transformation of unit measurements for production, sales, consumption and losses. We transform every variable to kg.
+
+First check what are the unit measurement reported in this case. Use the code below, or check the google looker dashboard.
+
+```{r}
+table(Data$f_focus_measurement_prod)
+#table(Data$f_focus_measurement_sold)
+#table(Data$f_focus_measurement_lost)
+table(Data$f_focus_crop_age)
+
+```
+
+To do so, we extract the numerical values from the measurement units for quantity produced, sold, consumed and lost. Always check by hand whether this is going well. We extract the numbers from the measurement units to calculate total quantities. If there are other measurement units, not related to kg, put a value for those in the variable: cal_focus_measurement_prod
+
+For palm oil, the quantity depends on the age of the tree. That is why we asked this question as well, to adapt the cal_focus_measurement_ variable to this. The weight values are the following: 
+- More than 25 years old: 15.28 kg
+- 20-24 years old: 16.54 kg
+- 15-19 years old: 16.79 kg
+- 10-14 years old: 15.37 kg
+- 5-9 years old: 12.84 kg
+- 0-5 years old: 12.84 kg
+
+```{r}
+# First clean the data in f_focus_crop_age
+Data <- Data %>%
+  mutate(f_focus_crop_age = recode(f_focus_crop_age,
+    "Other, please specify|2015" = "2011 to 2015",
+    "Other, please specify|2019" = "2016 to 2020",
+    "Other, please specify|2020" = "2016 to 2020",
+    "Other, please specify|2020-2022" = "2021 to 2025"
+  ))
+```
+
+**Measurement unit production**
+
+```{r, include = FALSE}
+Data <- Data %>%
+  mutate(
+    cal_focus_measurement_prod = as.numeric(case_when(
+      grepl("[[:digit:]]", f_focus_measurement_prod) ~ parse_number(f_focus_measurement_prod),
+      f_focus_measurement_prod %in% c("kg", "Kgs") ~ 1,
+      f_focus_measurement_prod == "Tonnes" ~ 1000,
+      f_focus_measurement_prod %in% c("Other, please specify|Litres", 
+                                      "Other, please specify|Litres (after processing)") ~ 1,
+      # Handle 'Number of bunches' based on crop age
+      f_focus_measurement_prod == "Number of bunches" & f_focus_crop_age == "2001 to 2005" ~ 16.54,
+      f_focus_measurement_prod == "Number of bunches" & f_focus_crop_age == "2006 to 2010" ~ 16.79,
+      f_focus_measurement_prod == "Number of bunches" & f_focus_crop_age == "2011 to 2015" ~ 15.37,
+      f_focus_measurement_prod == "Number of bunches" & f_focus_crop_age == "2016 to 2020" ~ 12.84,
+      f_focus_measurement_prod == "Number of bunches" & f_focus_crop_age == "2021 to 2025" ~ 12.84,
+      f_focus_measurement_prod == "Number of bunches" & f_focus_crop_age == "Before 2000" ~ 15.28,
+      #Fallback value
+      TRUE ~ 0
+    ))
+  )
+# Create a dataframe with only the two columns to check whether the calculation went allright
+check_measurement_conversion_prod <- Data %>%
+  select(f_focus_measurement_prod, cal_focus_measurement_prod)
+
+```
+
+**Measurement unit sales**
+
+```{r, include = FALSE}
+
+Data <- Data %>%
+  mutate(
+    cal_focus_measurement_sold = as.numeric(case_when(
+      grepl("[[:digit:]]", f_focus_measurement_sold) ~ parse_number(f_focus_measurement_sold),
+      f_focus_measurement_sold %in% c("kg", "Kgs") ~ 1,
+      f_focus_measurement_sold == "Tonnes" ~ 1000,
+      f_focus_measurement_sold %in% c("Other, please specify|Litres", 
+                                      "Other, please specify|Litres (after processing)") ~ 1,
+      # Handle 'Number of bunches' based on crop age
+      f_focus_measurement_sold == "Number of bunches" & f_focus_crop_age == "2001 to 2005" ~ 16.54,
+      f_focus_measurement_sold == "Number of bunches" & f_focus_crop_age == "2006 to 2010" ~ 16.79,
+      f_focus_measurement_sold == "Number of bunches" & f_focus_crop_age == "2011 to 2015" ~ 15.37,
+      f_focus_measurement_sold == "Number of bunches" & f_focus_crop_age == "2016 to 2020" ~ 12.84,
+      f_focus_measurement_sold == "Number of bunches" & f_focus_crop_age == "2021 to 2025" ~ 12.84,
+      f_focus_measurement_sold == "Number of bunches" & f_focus_crop_age == "Before 2000" ~ 15.28,
+      TRUE ~ 0
+    ))
+  )
+
+# Create a dataframe with only the two columns to check whether the calculation went allright
+check_measurement_conversion_sold <- Data %>%
+  select(f_focus_measurement_sold, cal_focus_measurement_sold)
+
+
+```
+
+**Measurement unit focus crop lost**
+
+```{r, include = FALSE}
+
+Data <- Data %>%
+  mutate(
+    cal_focus_measurement_lost = as.numeric(case_when(
+      grepl("[[:digit:]]", f_focus_measurement_lost) ~ parse_number(f_focus_measurement_lost),
+      f_focus_measurement_lost %in% c("kg", "Kgs") ~ 1,
+      f_focus_measurement_lost == "Tonnes" ~ 1000,
+      f_focus_measurement_lost %in% c("Other, please specify|Litres", 
+                                      "Other, please specify|Litres (after processing)") ~ 1,
+      # Handle 'Number of bunches' based on crop age
+      f_focus_measurement_lost == "Number of bunches" & f_focus_crop_age == "2001 to 2005" ~ 16.54,
+      f_focus_measurement_lost == "Number of bunches" & f_focus_crop_age == "2006 to 2010" ~ 16.79,
+      f_focus_measurement_lost == "Number of bunches" & f_focus_crop_age == "2011 to 2015" ~ 15.37,
+      f_focus_measurement_lost == "Number of bunches" & f_focus_crop_age == "2016 to 2020" ~ 12.84,
+      f_focus_measurement_lost == "Number of bunches" & f_focus_crop_age == "2021 to 2025" ~ 12.84,
+      f_focus_measurement_lost == "Number of bunches" & f_focus_crop_age == "Before 2000" ~ 15.28,
+      
+      TRUE ~ 0
+    ))
+  )
+
+# Create a dataframe with only the two columns to check whether the calculation went allright
+check_measurement_conversion_lost <- Data %>%
+  select(f_focus_measurement_lost, cal_focus_measurement_lost)
+```
+
+## 2) Quantities produced, sold, lost and own consumption
+
+In this section the quantities produced, sold, lost and own consumption are cleaned. Now that the unit measurements are transformed, the quantities produced, sold, lost and own consumption can be calculated in kgs.
+
+```{r, include = FALSE}
+Data <- Data %>%
+    # Convert relevant columns to numeric
+  mutate(across(c(f_focus_quant_prod, cal_focus_measurement_prod, f_focus_quant_sold, cal_focus_measurement_sold, f_focus_quant_lost, cal_focus_measurement_lost, 
+                  f_focus_price), as.numeric)) %>%
+  ##Calculate the quantities focus crop
+  mutate(cal_focus_quant_prod_kg = f_focus_quant_prod * cal_focus_measurement_prod) %>%
+  mutate(cal_focus_quant_sold_kg = f_focus_quant_sold * cal_focus_measurement_sold) %>%
+  mutate(cal_focus_quant_lost_kg = f_focus_quant_lost * cal_focus_measurement_lost) %>%
+ # mutate(cal_focus_quant_own_consumption_kg = f_focus_own_consumption * cal_focus_measurement_own_consumption)%>%
+  mutate_at(vars(starts_with("cal_focus_quant")), ~replace_na(., 0)) 
+    
+  # also calculate the unit price 
+Data <- Data %>%
+  mutate(cal_focus_price = ifelse(cal_focus_measurement_prod != 0, f_focus_price/cal_focus_measurement_sold, f_focus_price),
+    cal_focus_price = ifelse(is.na(cal_focus_quant_sold_kg) | cal_focus_quant_sold_kg == 0, NA, cal_focus_price))%>%
+  mutate(cal_focus_price = replace_na(cal_focus_price, 0))
+
+Data <- Data %>%
+  mutate(
+    cal_focus_quant_prod_kg = as.numeric(cal_focus_quant_prod_kg),
+    cal_focus_quant_sold_kg = as.numeric(cal_focus_quant_sold_kg),
+    cal_focus_quant_lost_kg = as.numeric(cal_focus_quant_lost_kg),
+    cal_focus_price = as.numeric(cal_focus_price)
+  )
+
+```
+
+```{r, include = FALSE}
+#Replace Price NA with median if there is record of sale
+Data <- Data %>%
+  mutate(cal_focus_price = ifelse(cal_focus_quant_sold_kg > 0 & is.na(cal_focus_price), median(cal_focus_price), cal_focus_price))
+```
+
+Check whether the calculations went well. We make a subset of the data with relevant variables. Click on the dataset to sort the columns to detect strange numbers and solve if necessary.
+
+```{r, include = FALSE}
+
+quantities_produced_subset <- Data %>% select(f_focus_measurement_prod, cal_focus_measurement_prod, f_focus_quant_prod, cal_focus_quant_prod_kg)
+
+quantities_sold_subset <- Data %>% select(f_focus_measurement_sold, cal_focus_measurement_sold, f_focus_quant_sold, cal_focus_quant_sold_kg)
+
+quantities_lost_subset <- Data %>% select(f_focus_measurement_lost, cal_focus_measurement_lost, f_focus_quant_lost, cal_focus_quant_lost_kg)
+
+#quantities_own_consumption_subset <- Data %>% select(f_focus_own_consumption_measurement, #cal_focus_measurement_own_consumption, f_focus_own_consumption, cal_focus_quant_own_consumption_kg)
+
+price_subset <- Data %>% select(f_focus_price, cal_focus_measurement_prod, cal_focus_price)
+```
+
+Tabulate some stats to check data quality, then make adjustments above in section 1
+
+```{r}
+
+# Create a boxplot of price
+#boxplot(Data$cal_focus_price, ylab="Price of coffee per kg",
+#        main="Boxplot of coffee price", col="red", las=1, cex.lab=1.2)
+
+# Create a boxplot of quantity prod
+#boxplot(Data$cal_focus_quant_prod_kg, ylab="quantity produced",
+#        main="Boxplot of quantity produced", col="red", las=1, cex.lab=1.2)
+
+# Create a boxplot of quantity sold
+#boxplot(Data$cal_focus_quant_sold_kg, ylab="quantity sold",
+#        main="Boxplot of quantity sold", col="red", las=1, cex.lab=1.2)
+
+# Create a boxplot of quantity lost
+#boxplot(Data$cal_focus_quant_lost_kg, ylab="quantity lost",
+#        main="Boxplot of quantity lost", col="red", las=1, cex.lab=1.2)
+
+# Filter the data and tabulate the uuid when price=0 but we have sales
+#Data %>%
+#  filter(cal_focus_price == 0 & cal_focus_quant_sold_kg > 0) %>%
+#  select(uuid, cal_focus_price, cal_focus_quant_sold_kg)  # Select relevant columns
+
+# Filter the data and tabulate the uuid when prod is lower than sales
+#Data %>%
+#  filter(cal_focus_quant_sold_kg > cal_focus_quant_prod_kg) %>%
+#  select(uuid, f_focus_quant_prod, f_focus_measurement_prod, f_focus_quant_sold, f_focus_measurement_sold, f_focus_crop_size_hectare)  # Select relevant columns
+
+#Data %>%
+#  filter(cal_focus_quant_sold_kg == 0 & cal_focus_quant_prod_kg == 0) %>%
+#  select(uuid, f_focus_crop_size_hectare, f_focus_quant_prod, f_focus_quant_sold, cal_focus_price)
+
+#Data %>%
+#  filter(cal_focus_quant_sold_kg == 0 & cal_focus_price > 0) %>%
+#  select(uuid, cal_focus_price, cal_focus_quant_sold_kg)
+```
+
+## 3) Focus crop revenue calculation
+
+check the revenue time period and harmonize if not
+
+```{r}
+# Check how many seasons there are to adjust the following code 
+#table(Data$f_focus_rev_timeperiod)
+```
+
+```{r}
+# #harmonise season if not
+# Data <- Data %>%
+#   mutate(f_focus_rev_timeperiod=ifelse(f_focus_rev_timeperiod=="season 1 timeframe", "season 1",
+#                                        ifelse(f_focus_rev_timeperiod== "season 2 timefrmae", "season 2" ,
+#                                               f_focus_rev_timeperiod)))
+```
+
+Calculate the revenue (globally and per season). make sure the name of season is updated (if not labeled in the same way) in the code below
+
+```{r, include = FALSE}
+Data <- Data %>%
+  mutate(cal_focus_revenue = cal_focus_quant_sold_kg * cal_focus_price,
+         cal_focus_revenue = replace_na(cal_focus_revenue, 0))
+   
+
+##Replace missing values in focus revenue by zero
+Data <- Data %>%
+  mutate(cal_focus_revenue = ifelse(is.na(cal_focus_revenue), 0, cal_focus_revenue)) 
+
+Data <- Data %>%
+  mutate(
+    cal_focus_revenue = as.numeric(cal_focus_revenue))
+```
+
+## 4) Productivity calculation
+
+Calculate the productivity variable by dividing the production by the farm size dedicated to the focus crop (in acre).
+
+```{r, include = FALSE}
+
+Data <- Data %>%
+  
+  mutate(across(c(cal_focus_quant_prod_kg, f_focus_crop_size_acre), as.numeric)) %>%
+  mutate(f_focus_crop_size_acre = replace_na(f_focus_crop_size_acre, 0),
+         cal_focus_productivity_acre = ifelse(f_focus_crop_size_acre > 0, cal_focus_quant_prod_kg/f_focus_crop_size_acre, NA))
+
+Data <- Data %>%
+  mutate(
+    cal_focus_productivity_acre = as.numeric(cal_focus_productivity_acre))
+```
+
+
+## 6) Input costs calculation
+
+Input costs are asked per season. This code sums up the costs for seasons to arrive at a total input cost.
+
+```{r, include = FALSE}
+#cost per season
+Data <- Data %>%
+  mutate_at(vars(starts_with("f_inputs_costs")), as.numeric) %>%
+  mutate_at(vars(starts_with("f_inputs_costs")), ~ifelse(is.na(.), 0, .))
+  
+#check if some inputs variables are asked per land unit and make adjustments
+# Data <- Data %>%
+#   # Calculate inputs costs per season for those in per hectare
+#   mutate(cal_inputs_costs_insect_season = f_inputs_costs_insect_season_per_hectare * f_focus_crop_size_hectare,
+#          cal_inputs_costs_irrigation_season = f_inputs_costs_irrigation_season_per_hectare * f_focus_crop_size_hectare,
+#          cal_inputs_costs_biological_control_season = f_inputs_costs_biological_control_season_per_hectare * f_focus_crop_size_hectare,
+#          cal_inputs_costs_other_season = f_inputs_costs_other_season_per_hectare * f_focus_crop_size_hectare)
+
+#calculate input costs
+Data <- Data %>%
+  mutate(
+    cal_inputs_costs = rowSums(
+      select(., starts_with("f_inputs_costs")) %>%
+        mutate(across(everything(), ~as.numeric(.))),
+      na.rm = TRUE
+    )
+  )
+
+Data <- Data %>%
+  mutate(
+    cal_inputs_costs = as.numeric(cal_inputs_costs))
+```
+
+
+## 8) Total cost focus crop
+
+@warning: outlier detection applied
+
+```{r}
+Data <- Data %>%
+  mutate(
+    cal_inputs_costs = as.numeric(cal_inputs_costs),
+    f_focus_costs_other = as.numeric(f_focus_costs_other),
+    f_focus_labour_costs_year = as.numeric(f_focus_labour_costs_year),
+
+    cal_focus_cost = f_focus_labour_costs_year + cal_inputs_costs + f_focus_costs_other,
+    cal_focus_cost = replace_na(cal_focus_cost, 0)
+  )
+
+```
+
+## 9) Net-income focus crop
+
+```{r}
+Data <- Data %>%
+  mutate(cal_focus_income = cal_focus_revenue - cal_focus_cost)
+
+Data <- Data %>%
+  mutate(
+    cal_focus_income = as.numeric(cal_focus_income))
+```
+
+## 10) Net-income other crops
+
+```{r}
+# Clean data type and values from share variable
+Data$f_othermaincrop_1_income_share <- as.numeric(Data$f_othermaincrop_1_income_share)
+Data <- Data %>% mutate(f_othermaincrop_1_income_share = ifelse(f_othermaincrop_1_income_share == 10, 1, f_othermaincrop_1_income_share))
+
+Data$f_othermaincrop_2_income_share <- as.numeric(Data$f_othermaincrop_2_income_share)
+Data <- Data %>% mutate(f_othermaincrop_2_income_share = ifelse(f_othermaincrop_2_income_share == 10, 1, f_othermaincrop_2_income_share))
+```
+
+```{r}
+# check for rows where cost is > 0 and income missing 
+Data <- Data %>%
+  mutate(f_othermaincrop_1_costs = ifelse(is.na(f_othermaincrop_1_costs), NA, f_othermaincrop_1_costs)) %>%
+  mutate(f_othermaincrop2_costs = ifelse(is.na(f_othermaincrop2_costs), NA, f_othermaincrop2_costs)) 
+```
+
+```{r, include = FALSE}
+# Define variables
+variables_to_replace <- c("f_othermaincrop_1_costs", "f_othermaincrop2_costs")
+
+# Convert to numeric and replace NAs with 0
+Data <- Data %>%
+  mutate(across(all_of(variables_to_replace), ~replace_na(as.numeric(.), 0)))
+
+```
+
+
+
+```{r}
+Data <- Data %>%
+  mutate(f_othermaincrop_1_inc_sold = replace_na(as.numeric(f_othermaincrop_1_inc_sold),0),
+         f_othermaincrop_2_inc_sold = replace_na(as.numeric(f_othermaincrop_2_inc_sold),0))
+```
+
+Net income calculation:
+
+```{r}
+Data <- Data %>%
+  mutate(cal_other_crop_income = f_othermaincrop_1_inc_sold - f_othermaincrop_1_costs + f_othermaincrop_2_inc_sold -  f_othermaincrop2_costs)
+
+Data <- Data %>%
+  mutate(
+    cal_other_crop_income = as.numeric(cal_other_crop_income))
+
+```
+
+## 11) Net-income livestock calculation
+
+```{r}
+Data$f_livestock_income_share <- as.numeric(Data$f_livestock_income_share)
+
+Data <- Data %>% mutate(f_livestock_income_share = ifelse(f_livestock_income_share == 10, 1, f_livestock_income_share))
+```
+
+check the available information that can be include in variable to replace, then adapt the code
+
+```{r}
+Data <- Data %>%
+  mutate(
+    cal_livestock_income = 
+      as.numeric(f_livestock_revenue_total) - as.numeric(f_livestock_costs) +
+      as.numeric(f_bee_revenue_total) - as.numeric(f_bee_costs)
+  )
+
+Data <- Data %>%
+   mutate_at(vars(cal_livestock_income), ~replace_na(., 0))
+```
+
+
+## 12) Loan costs
+
+--> agri loan cost only
+
+```{r}
+table(Data$hh_loan_agri_size)
+```
+```{r}
+# Check whether farmers said a higher interest number compared to the total amount to be repaid
+loan_mismatch_subset <- Data %>%
+  filter(as.numeric(hh_loan_agri_paid_year) < as.numeric(hh_loan_interest_paid_year))
+
+```
+
+
+```{r}
+variables_to_replace <- c("hh_loan_agri_size","hh_loan_interest_paid_year", "hh_loan_agri_paid_year")
+
+# Convert to numeric and replace NAs with 0
+Data <- Data %>%
+  mutate(across(all_of(variables_to_replace), ~replace_na(as.numeric(.), 0)))
+
+Data <- Data %>% 
+  mutate(cal_farm_costs_loans = hh_loan_interest_paid_year) %>%
+  mutate(cal_farm_costs_loans = ifelse(is.na(cal_farm_costs_loans), 0, cal_farm_costs_loans)) 
+
+Data <- Data %>%
+  mutate(
+    cal_farm_costs_loans = as.numeric(cal_farm_costs_loans))
+```
+
+
+## 13) Off-farm and other income calculation
+
+check and add any variable that should be considered
+
+```{r}
+variables_to_replace <- c("f_nonfarm_income_total")
+Data <- Data %>%
+  mutate_at(vars(all_of(variables_to_replace)), ~replace_na(as.numeric(.), 0))
+
+```
+
+## 14) Farm income calculation
+
+```{r}
+Data <- Data %>%
+  mutate(cal_farm_income = cal_focus_income + cal_other_crop_income + cal_livestock_income,
+         cal_farm_income = replace_na(cal_farm_income, 0))
+
+Data <- Data %>%
+  mutate(
+    cal_farm_income = as.numeric(cal_farm_income))
+```
+
+## 15) Actual income calculation
+
+
+```{r}
+# Clean data type and values from share variable
+Data$f_focus_income_share <- as.numeric(Data$f_focus_income_share)
+Data <- Data %>% mutate(f_focus_income_share = ifelse(f_focus_income_share == 10, 1, f_focus_income_share))
+```
+
+```{r}
+Data <- Data %>% 
+  # Second approach for actual income, based on the income share of farmers
+  mutate(
+    cal_actual_income_v2 = cal_focus_income * (10/(as.numeric(f_focus_income_share)))) %>%
+  mutate(
+    # Set cal_actual_income_v2 to missing (NA) if cal_focus_income is 0 or missing
+    cal_actual_income_v2 = ifelse(is.na(cal_focus_income) | cal_focus_income == 0 | f_focus_quant_sold==0 | is.na(f_focus_quant_sold) | f_focus_measurement_sold==""  | f_focus_income_share == 0, NA, cal_actual_income_v2))
+
+Data <- Data %>%
+  mutate(
+    cal_actual_income_v2 = as.numeric(cal_actual_income_v2))
+
+```
+
+```{r}
+# make a check file to see whether everything went correct
+
+subset <- Data %>% 
+  select(cal_focus_quant_prod_kg, cal_focus_quant_sold_kg, cal_focus_price, cal_focus_quant_lost_kg, 
+         cal_focus_revenue, cal_focus_productivity_acre, cal_inputs_costs, cal_focus_cost, cal_focus_income,cal_other_crop_income, cal_livestock_income, cal_actual_income_v2)
+ 
+#cal_actual_income_v2 , cal_actual_income_v3)
+
+write.xlsx(subset, "calculated_variables_script2.0.xlsx")
+```
+
+# Section 3 Descriptive statistics
+
+## 1) Net Promotor score
+
+```{r}
+unique(Data$cs_recommendation)
+
+```
+
+```{r, include = FALSE}
+hh_farmer_gender <- c("all farmers") 
+    
+    NSP_total <- Data %>%
+      select(uuid, cs_recommendation) %>% 
+      mutate(
+        cs_recommendation = ifelse(is.na(cs_recommendation), "no input", cs_recommendation),
+        detractor = as.numeric(cs_recommendation %in% c("Not likely", "Somewhat likely", "Likely")),
+        promoter = as.numeric(cs_recommendation == "Very likely"),
+        passive = as.numeric(cs_recommendation %in% c("Most likely", "I dont know")),
+        nr_recommenders = as.numeric(cs_recommendation != "no input")
+             ) %>%
+      summarize(nr_promoters = sum(promoter),
+                nr_detractors = sum(detractor),
+                nr_passive = sum(passive),
+                nr_farmers = sum(nr_recommenders)
+                ) %>%
+      mutate(
+        nsp_total = round((nr_promoters/nr_farmers) - (nr_detractors/nr_farmers),2),
+        hh_farmer_gender = hh_farmer_gender)
+    
+# NSP By gender 
+NSP_by_gender <- Data %>%
+  select(uuid, cs_recommendation, hh_farmer_gender) %>% 
+  mutate(
+    cs_recommendation = ifelse(is.na(cs_recommendation), "no input", cs_recommendation),
+    detractor = as.numeric(cs_recommendation %in% c("Not likely", "Somewhat likely", "Likely")),
+    promoter = as.numeric(cs_recommendation == "Very likely"),
+    passive = as.numeric(cs_recommendation %in% c("Most likely", "I dont know")),
+    nr_recommenders = as.numeric(cs_recommendation != "no input")
+         ) %>%
+  group_by(hh_farmer_gender) %>%
+  summarize(nr_promoters = sum(promoter),
+            nr_detractors = sum(detractor),
+            nr_passive = sum(passive),
+            nr_farmers = sum(nr_recommenders)) %>%
+  mutate(nsp_gender = round((nr_promoters/nr_farmers) - (nr_detractors/nr_farmers),2))
+
+NSP <- full_join(NSP_total, NSP_by_gender)
+NSP <- NSP %>% select(hh_farmer_gender, nr_farmers, nr_promoters, nr_detractors,nr_passive, nsp_total, nsp_gender)
+    
+```
+
+## 2) Anonymise data for further use
+
+```{r, include = FALSE}
+Data <- Data %>%
+  rename(location_cascade_region = pi_location_cascade) %>%  ### the variable on the right differs from case to case!!!
+  select(
+    -c(starts_with("pi_"), -contains("county"), -one_of("pi_location_distance")), # Added -one_of("pi_location_distance")
+    -c(submitter), -c(`_id`), -c(`_index`),
+    -c(name_of_farmer)) %>%
+  rename(pi_location_cascade_first_level = location_cascade_region)
+```
+
+## 3) Summary statistics
+
+### All Farmers: numerical descriptives
+
+```{r, include = FALSE}
+# Get numeric-only columns
+numeric_data <- Data %>% select(where(is.numeric))
+
+# Create summary tables
+mean_df <- numeric_data %>%
+  summarise(across(everything(), ~round(mean(., na.rm = TRUE), 2))) %>%
+  t() %>% as.data.frame() %>%
+  rownames_to_column("variable") %>%
+  rename(mean = V1)
+
+sd_df <- numeric_data %>%
+  summarise(across(everything(), ~round(sd(., na.rm = TRUE), 2))) %>%
+  t() %>% as.data.frame() %>%
+  rownames_to_column("variable") %>%
+  rename(sd = V1)
+
+min_df <- numeric_data %>%
+  summarise(across(everything(), ~round(min(., na.rm = TRUE), 2))) %>%
+  t() %>% as.data.frame() %>%
+  rownames_to_column("variable") %>%
+  rename(min = V1)
+
+max_df <- numeric_data %>%
+  summarise(across(everything(), ~round(max(., na.rm = TRUE), 2))) %>%
+  t() %>% as.data.frame() %>%
+  rownames_to_column("variable") %>%
+  rename(max = V1)
+
+freq_df <- numeric_data %>%
+  summarise(across(everything(), ~sum(!is.na(.)))) %>%
+  t() %>% as.data.frame() %>%
+  rownames_to_column("variable") %>%
+  rename(freq = V1)
+
+# Merge all summaries
+numerical_descriptives_all_farmers <- mean_df %>%
+  left_join(sd_df, by = "variable") %>%
+  left_join(min_df, by = "variable") %>%
+  left_join(max_df, by = "variable") %>%
+  left_join(freq_df, by = "variable") %>%
+  select(variable, freq, mean, sd, min, max)
+
+```
+
+### All farmers: single categorical descriptives
+
+```{r, include = FALSE}
+# Label and total number of respondents
+farmer_type <- "all farmers"
+nr_participants_raw <- nrow(Data)  # count total participants
+
+# Count total number of responses per variable (can be adjusted later)
+all_var <- tibble(
+  variable = NA_character_,
+  `farmer type` = farmer_type,
+  n = nr_participants_raw
+)
+
+# Identify all select_one questions
+single_mc <- survey_questions %>%
+  filter(str_starts(type, "select_one")) %>%
+  pull(name)
+
+# Initialize output table
+single_categorical_descriptives_all_farmers <- tibble()
+
+# Loop over each select_one variable
+for (i in single_mc) {
+  
+  if (i %in% names(Data)) {
+    
+    frequencies <- Data %>%
+      count(!!sym(i), name = "freq") %>%
+      rename(category = !!sym(i)) %>%
+      mutate(
+        n = nr_participants_raw,
+        `farmer type` = farmer_type,
+        variable = i,
+        `%` = round(freq / n * 100, 2),
+        category = as.character(category)
+      )
+    
+    single_categorical_descriptives_all_farmers <- single_categorical_descriptives_all_farmers %>%
+      bind_rows(frequencies) %>%
+      select(variable, `farmer type`, n, category, freq, `%`)
+  }
+}
+```
+
+### All farmers: multiple categorical descriptives
+
+```{r, include = FALSE}
+multiple_mc <- survey_questions %>%
+  filter(grepl("^select_multiple", type)) %>%  # Filter select_multiple questions
+  pull(name)  # Extract the variable names
+multiple_categorical_descriptives_all_farmers <- all_var
+
+for (j in multiple_mc) {
+  print(j)
+  
+  # Skip the variable that do not work for this code (empty for example)
+  # if (j == "f_labour_otheractivity_labour_type") {
+  #   next
+  # }
+  # if (j == "hh_loan_one_agri_purpose") {
+  #   next
+  # }
+  # if (j == "hh_loan_mulitple_largest_purpose") {
+  #   next
+  # }
+  if (any(names(Data) %in% j)) {
+    frequencies <- Data %>%
+      select(all_of(j)) %>%
+      cSplit(j, "|") %>%
+      gather(key, value) %>%
+      select(-key) %>%
+      table() %>%
+      melt(c("category"), value.name = "freq") %>%
+      mutate(n = nr_participants_raw) %>%
+      mutate("variable" = j) %>%
+      left_join(all_var) %>%
+      mutate("%" = round(freq / n, 2) * 100) %>%
+      mutate(category = as.character(category))
+    
+    multiple_categorical_descriptives_all_farmers <- multiple_categorical_descriptives_all_farmers %>%
+      full_join(frequencies) %>%
+      select(variable, `farmer type`, n, category, freq, "%")
+  }
+}
+
+```
+
+### By gender: numerical descriptives
+
+```{r, include=FALSE}
+# Create gender summary (optional for joining later)
+gender_var <- Data %>% 
+  count(hh_farmer_gender, name = "n")
+
+# Get only numeric columns
+numeric_vars <- Data %>% select(where(is.numeric)) %>% names()
+
+# Mean
+mean_df <- Data %>%
+  group_by(hh_farmer_gender) %>%
+  summarise(across(all_of(numeric_vars), ~round(mean(.x, na.rm = TRUE), 2)), .groups = "drop") %>%
+  pivot_longer(-hh_farmer_gender, names_to = "variable", values_to = "mean")
+
+# SD
+sd_df <- Data %>%
+  group_by(hh_farmer_gender) %>%
+  summarise(across(all_of(numeric_vars), ~round(sd(.x, na.rm = TRUE), 2)), .groups = "drop") %>%
+  pivot_longer(-hh_farmer_gender, names_to = "variable", values_to = "sd")
+
+# Min
+min_df <- Data %>%
+  group_by(hh_farmer_gender) %>%
+  summarise(across(all_of(numeric_vars), ~round(min(.x, na.rm = TRUE), 2)), .groups = "drop") %>%
+  pivot_longer(-hh_farmer_gender, names_to = "variable", values_to = "min")
+
+# Max
+max_df <- Data %>%
+  group_by(hh_farmer_gender) %>%
+  summarise(across(all_of(numeric_vars), ~round(max(.x, na.rm = TRUE), 2)), .groups = "drop") %>%
+  pivot_longer(-hh_farmer_gender, names_to = "variable", values_to = "max")
+
+# Frequency (non-NA count)
+freq_df <- Data %>%
+  group_by(hh_farmer_gender) %>%
+  summarise(across(all_of(numeric_vars), ~sum(!is.na(.x))), .groups = "drop") %>%
+  pivot_longer(-hh_farmer_gender, names_to = "variable", values_to = "freq")
+
+# Merge all stats
+numerical_descriptives_by_gender <- mean_df %>%
+  left_join(sd_df, by = c("hh_farmer_gender", "variable")) %>%
+  left_join(min_df, by = c("hh_farmer_gender", "variable")) %>%
+  left_join(max_df, by = c("hh_farmer_gender", "variable")) %>%
+  left_join(freq_df, by = c("hh_farmer_gender", "variable")) %>%
+  left_join(gender_var, by = "hh_farmer_gender") %>%
+  select(variable, hh_farmer_gender, n, freq, mean, sd, min, max)
+```
+
+### By gender: single categorical descriptives
+
+```{r, include = FALSE}
+
+single_mc <- survey_questions %>%
+  filter(grepl("^select_one", type)) %>%  # Keep only single-choice questions
+  filter(name != "hh_farmer_gender") %>%  # Exclude gender variable
+  pull(name)  # Extract variable names
+
+single_categorical_descriptives_by_gender <- gender_var
+
+for(i in single_mc){
+  
+  if(any(names(Data) %in% i)){
+    
+    frequencies <- Data %>% 
+      select(hh_farmer_gender, all_of(i)) %>% 
+      table() %>% 
+      melt(c("hh_farmer_gender","category"), value.name="freq") %>%
+      mutate("variable" = i) %>%
+      left_join(gender_var) %>%
+      mutate("%" = round(freq/n,2)*100) %>%
+      mutate(category = as.character(category))
+    
+    single_categorical_descriptives_by_gender <- single_categorical_descriptives_by_gender %>% 
+      full_join(frequencies) %>%
+      select(variable, hh_farmer_gender, n, category, freq, "%")
+  }
+}
+```
+
+### By gender: multiple categorical descriptives
+
+```{r, include = FALSE}
+
+multiple_mc <- survey_questions %>%
+  filter(grepl("^select_multiple", type)) %>%  # Filter select_multiple questions
+  filter(name != "hh_farmer_gender") %>%  # Exclude gender variable
+  pull(name)  # Extract the variable names
+
+multiple_categorical_descriptives_by_gender <- gender_var
+
+for(j in multiple_mc){
+  print(j)
+  #remove variable not working for this code
+  # if (j == "f_labour_otheractivity_labour_type") {
+  #   next
+  # }
+  # if (j == "hh_loan_mulitple_largest_purpose") {
+  #   next
+  # }
+  if(any(names(Data) %in% j)){
+    
+    frequencies <- Data %>% 
+      select(hh_farmer_gender, all_of(j)) %>% 
+      cSplit(j, "|") %>%
+      gather(key, value, -hh_farmer_gender) %>%
+      select(-key) %>% table() %>%
+      melt(c("hh_farmer_gender","category"), value.name="freq") %>%
+      mutate("variable" = j) %>%
+      left_join(gender_var) %>%
+      mutate("%" = round(freq/n,2)*100) %>%
+      mutate(category = as.character(category))
+    
+    multiple_categorical_descriptives_by_gender <- multiple_categorical_descriptives_by_gender %>% 
+      full_join(frequencies) %>%
+      select(variable, hh_farmer_gender, n, category, freq, "%")
+  }
+}
+```
+
+# Section 4: Final checking
+
+## 1) Check completeness of the codebook
+
+All variables that are in the data should get a description in the codebook. That's why we check this and correct/ add where missing. We also check whether we have all the variables that are required for the data delivery.
+
+```{r, include = FALSE}
+# Adapt column names to expected structure
+question_library <- question_library %>%
+  dplyr::rename(
+    label = `label::English`,
+    name = name,
+    type = type
+  ) %>%
+  mutate(across(everything(), tolower)) %>%
+  select(label, name, type)
+
+# Prepare list of unmatched items if needed
+unmatched <- list()
+```
+
+## 2) Remove repeated rows
+
+Remove repeated rows for household members and create columns for each household member (max household number is 15). Delete the unnecessary, only if household roster questions are asked, check also which ones are used. @Warning: to be updated properly with data
+
+```{r, include = FALSE}
+if("uuid" %in% colnames(Data)){     
+    Data <- Data %>%
+      group_by(uuid) %>%
+      mutate(id = row_number())
+}
+#    for (nr in c(1:15)){
+      
+      ### ---- delete the unnecessary --- only if household roster questions are asked, check also which ones are used
+#      hh_focuscrop_nr <- paste0("hh_focuscrop_", nr)
+      
+#      Data <- Data %>%
+        #Delete the rows that do not apply
+#        mutate(
+#          !!sym(hh_focuscrop_nr) := ifelse(id == nr, hh_focuscrop_hrs, NA)) %>%
+        
+        #Delete the rows that do not apply
+#        fill(!!sym(hh_focuscrop_nr)) %>%
+#        fill(!!sym(hh_focuscrop_nr), .direction = "up") %>%
+        
+        #Delete the rows that do not apply
+#        mutate(
+#          !!sym(hh_focuscrop_nr) := ifelse(id >1 , NA, !!sym(hh_focuscrop_nr) ))
+      
+#    }
+#  }
+  
+
+```
+
+Let's check the variable names. First we need a dataframe with all variable names, and
+
+```{r, include = FALSE}
+#Make a dataframe listing all variables 
+variable <-ls(Data)
+data <- data.frame(variable)
+
+## ---- Variables ending with other  ---
+
+#Check if data variable is in codebook        
+data$compare <-data$variable  %in%  survey_questions$name 
+
+#if it's a "other variable", do not remove
+data <- data %>%
+  mutate(compare = ifelse(grepl('_other$',variable) & compare == FALSE , FALSE, TRUE)) %>%
+  filter(compare == FALSE) 
+
+#survey_questions <- bind_rows(survey_questions, data)
+
+#survey_questions <- survey_questions %>%
+#  arrange(variable)  %>%
+#  fill(label) %>%
+#  mutate(type = ifelse(!is.na(compare), "text",type)) %>%
+  
+#  mutate(variable_2 = str_remove(variable,'_other$')) %>%
+#  mutate(same = ifelse(variable_2== lag(variable_2), 1, 0)) %>%
+  
+#  mutate(label = ifelse(!is.na(compare) & same == 0 , "no question available", label)) %>%
+#  select(-compare, -variable_2, -same)
+```
+
+Check if it is a calculated variable or a variable from the question library.
+
+```{r}
+variable <-ls(Data)
+data <- data.frame(variable)
+data$compare <-data$variable  %in%  survey_questions$name 
+data <- data %>%
+  filter(compare == FALSE) %>%
+  select(-compare)
+
+data$compare <-data$variable  %in%  vars_transformed$variable 
+
+#check whether there is a match by checking out the "data" dataset MANUALLY
+#if a variable is not in the vars_transformed, update the excel with variable transformations
+```
+
+Append the survey questions with the calculated variables
+
+```{r}
+#One changes are applied, append the codebook with information from the calculated variables (vars_transformed)
+library(dplyr)
+
+# Assuming "data" and "vars_transformed" are your dataframes
+
+vars_calculated <- data$variable
+
+calculated_variables <- vars_transformed %>%
+  filter(variable %in% vars_calculated)
+
+# Delete columns and rename others in one step
+calculated_variables <- calculated_variables %>%
+  select(
+    -transformation, # Delete the 'transformation' column
+    -...4            # Delete the '...4' column
+  ) %>%
+  rename(
+    name = variable,     # Rename 'variable' to 'name'
+    label = description  # Rename 'description' to 'label'
+  )
+
+survey_questions <- survey_questions %>%
+  bind_rows(calculated_variables)
+
+```
+
+Check whether its a household demographics variable
+
+```{r}
+#Check whether already in the codebook
+variable <-ls(Data)
+data <- data.frame(variable)
+data$compare <-data$variable  %in%  survey_questions$variable 
+data <- data %>%
+  filter(compare == FALSE) 
+
+```
+
+If indeed household demographics variable, append the codebook with that information
+
+```{r}
+data <- data %>%
+  filter(variable %in% household_demographics$variable) %>%
+  select(-compare)
+
+data <- merge(data, household_demographics, by.x = "variable")
+survey_questions <- bind_rows(survey_questions, data)
+```
+
+```{r, include = FALSE}
+# --- Check household demographic questions ---
+  hh_demo <- survey_questions %>%
+    filter(str_detect(name, 'hh_member_')) %>%
+    arrange(name)
+
+  survey_questions <- survey_questions %>%
+    filter(!str_detect(name, 'hh_member_')) 
+  survey_questions <- bind_rows(survey_questions, hh_demo)
+  
+```
+
+Check whether we have all the required variables for the portal
+
+```{r}
+# ---- dashboard variables ----
+  #All variables in delivered data into dataframe
+  
+  variable <-ls(Data)
+  data <- data.frame(variable)
+  
+  #Check if data variable is dashboard list     
+  vars_dashboard$compare <- vars_dashboard$latest_var %in% data$variable 
+  
+  data <- vars_dashboard %>%
+    filter(!is.na(latest_var)) %>%
+    filter(compare == FALSE)
+
+```
+```{r}
+
+```
+
+Prepare final list of unmatched vars
+
+-   Check these by hand and ensure the variable names are aligned with
+
+1)  the question library
+
+2)  list of calculated variables
+
+3)  Household demographic variables.
+
+Ensure that all variables part of the cleaned data or dashboard variable names are described in the codebook.
+
+```{r, include = FALSE}
+
+variable <- ls(Data)
+data <- data.frame(variable) %>%
+  filter(
+    !variable %in% c(survey_questions$name, vars_transformed$variable, question_library$name)
+  )
+
+```
+
+
+## 4) Combine the inputs for data delivery
+
+```{r}
+# rename columns for portal purposes
+Data <- Data %>%
+  rename(
+    identifier = uuid,
+    repeat_no = id,
+    `submission date` = endtime
+  )
+
+#make sure there is no scientific notation in the excel sheet
+numeric_cols <- sapply(Data, is.numeric)
+Data[numeric_cols] <- lapply(Data[numeric_cols], function(x) format(x, scientific = FALSE, trim = TRUE))
+
+
+sets <- list(
+    "Codebook" = survey_questions,
+    "Answer options" = questions_choices,
+    "Cleaned Data (anonymised)" = Data,
+    "Raw Data (anonymised)" = Data_raw, 
+    "Num. desc. all farmers" = numerical_descriptives_all_farmers,
+    "Cat. desc. single all farmers" = single_categorical_descriptives_all_farmers,
+    "Cat. desc. multi all farmers" = multiple_categorical_descriptives_all_farmers,
+    "Num. desc. by gender" = numerical_descriptives_by_gender,
+    "Cat. desc. single by gender" = single_categorical_descriptives_by_gender,
+    "Cat. desc. multi by gender" = multiple_categorical_descriptives_by_gender,
+    "Net promoter score" = NSP)
+  
+write.xlsx (sets, file = (paste0(data_delivery)))
+```
+
+
+## 6) Productivity check
+
+Create this file the first time you run the script to clean the data.
+
+```{r}
+#Productivity check
+
+productivity <- Data %>%
+    mutate(focus_product_min_sold = cal_focus_quant_prod_kg - cal_focus_quant_sold_kg) %>%
+
+    select(uuid,
+           submitter,
+           #`submission date`, ##MAKE SURE THIS VARIABLE IS NOT DELETED IN THE FIRST PIECE OF THE CODE.It should be deleted before sharing with IDH, but it should be kept when checking the productivity numbers.
+           starts_with("pi_location_cascade_level"), #include the applicable variable, this differs per case
+           f_unit_land,
+           f_size,
+           f_size_acre,
+           f_focus_crop_size,
+           f_focus_crop_size_acre,
+           cal_focus_productivity_acre,
+           f_focus_quant_prod,
+           f_focus_measurement_prod,
+           cal_focus_quant_prod_kg,
+           f_focus_quant_sold,
+           f_focus_measurement_sold,
+           cal_focus_quant_sold_kg,
+           focus_product_min_sold,
+           f_focus_price,
+           cal_focus_price,
+           cal_focus_revenue,
+           cal_focus_cost,
+           cal_focus_income
+           )
+  
+write.xlsx (productivity, file = "productivity_check.xlsx", overwrite = TRUE)
+
+```

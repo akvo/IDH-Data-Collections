@@ -1,0 +1,112 @@
+---
+title: "Sample Farmer List"
+author: "Sandra Fudorová"
+format: html
+editor: visual
+---
+
+```{r}
+library(dplyr)
+library(writexl)
+library(stringr)
+library(readxl)
+
+```
+
+# Data
+
+Data is loaded.
+
+```{r}
+data <-  read_excel(#farmer list file)
+
+```
+
+# Sample
+
+First we shuffle the dataset for randomness and remove duplicate village farmers, as well as adjust gender labels.
+
+```{r}
+set.seed(42) 
+
+shuffled_list <- data %>% sample_frac(size = 1)
+
+shuffled_list <- shuffled_list %>%
+  mutate(community = trimws(tolower(shuffled_list$'Community')))
+
+
+data_filtered <- shuffled_list %>%
+  group_by(Community) %>%
+  filter(n_distinct(list_name) == 1 | row_number() == 1) %>%
+  ungroup()
+
+table(data_filtered$District)
+data_filtered$Certification <- ifelse(is.na(data_filtered$Certification),0,1)
+data_filtered$Gender <- ifelse(data_filtered$Gender %in% c("M", "Male", "MM"), "Male", 
+                               ifelse(is.na(data_filtered$Gender), NA, "Female"))
+data_filtered <- data_filtered %>%
+  filter(!is.na(Gender))
+
+
+
+```
+
+Selecting the sample. Conditions:
+
+1.  one per village to avoid duplication (done above)
+2.  30% women
+3.  120 per region
+4.  50% certified
+
+```{r}
+
+target_female_prop <- 0.3   # Overall, at least 30% women
+target_certified_prop <- 0.47  # Overall, at least 50% certified
+
+max_attempts <- 1000
+attempt <- 1
+valid_sample <- NULL
+
+while(attempt <= max_attempts) {
+  # Sample 120 farmers per district
+  candidate <- data_filtered %>%
+    group_by(District) %>%
+    slice_sample(n = 120) %>%
+    ungroup()
+  
+
+  overall_female_prop <- mean(candidate$Gender == "Female", na.rm = TRUE)
+  overall_certified_prop <- mean(candidate$Certification == 1, na.rm = TRUE)
+  
+  cat("Attempt:", attempt, 
+      "Females:", overall_female_prop, 
+      "Certified:", overall_certified_prop, "\n")
+  
+  # Only accept candidate if both conditions are met:
+  if(overall_female_prop >= target_female_prop && overall_certified_prop >= target_certified_prop) {
+    valid_sample <- candidate
+    cat("Valid sample found on attempt", attempt, "\n")
+    break
+  }
+  
+  attempt <- attempt + 1
+}
+
+if(is.null(valid_sample)) {
+  stop("Could not obtain an overall sample meeting the conditions after ", max_attempts, " attempts.")
+}
+
+
+
+```
+
+```{r}
+table(valid_sample$District)
+table(valid_sample$Gender)
+table(valid_sample$Certification)
+
+```
+
+```{r}
+write_xlsx(valid_sample, "Sample.xlsx")
+```

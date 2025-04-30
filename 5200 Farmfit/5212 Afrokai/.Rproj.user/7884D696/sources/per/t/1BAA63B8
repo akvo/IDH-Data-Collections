@@ -1,0 +1,25 @@
+{
+    "id": "1BAA63B8",
+    "path": "~/akvo-data-science/IDH/5212 Afrokai/data_cleaning_afrokai_maize_sorghum.R",
+    "project_path": "data_cleaning_afrokai_maize_sorghum.R",
+    "type": "r_source",
+    "hash": "3095747616",
+    "contents": "",
+    "dirty": false,
+    "created": 1655730916763.0,
+    "source_on_save": false,
+    "relative_order": 8,
+    "properties": {
+        "cursorPosition": "1236,3",
+        "scrollLine": "0",
+        "docOutlineVisible": "1"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1655461939,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1655461939,
+    "read_only": false,
+    "read_only_alternatives": []
+}

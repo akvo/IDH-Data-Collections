@@ -1,0 +1,24 @@
+{
+    "id": "3C6FA3B6",
+    "path": "~/akvo-data-science/IDH/Farmfit data alignment/data alignment_part_1.R",
+    "project_path": null,
+    "type": "r_source",
+    "hash": "1766332919",
+    "contents": "",
+    "dirty": false,
+    "created": 1655130029950.0,
+    "source_on_save": false,
+    "relative_order": 5,
+    "properties": {
+        "cursorPosition": "12,18",
+        "scrollLine": "0"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1655130165,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1655130165153,
+    "read_only": false,
+    "read_only_alternatives": []
+}

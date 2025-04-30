@@ -1,0 +1,32 @@
+{
+    "id": "CCAC40C7",
+    "path": null,
+    "project_path": null,
+    "type": "r_dataframe",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1655134582060.0,
+    "source_on_save": false,
+    "relative_order": 5,
+    "properties": {
+        "expression": "match_codebook_variables",
+        "caption": "match_codebook_variables",
+        "totalObservations": "4",
+        "displayedObservations": "4",
+        "variables": "5",
+        "cacheKey": "76C7A146",
+        "object": "match_codebook_variables",
+        "environment": "",
+        "contentUrl": "grid_resource/gridviewer.html?env=&obj=match_codebook_variables&cache_key=76C7A146&max_cols=50",
+        "preview": "0"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 7953194692619959131,
+    "encoding": "",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1655134582060,
+    "read_only": false,
+    "read_only_alternatives": []
+}

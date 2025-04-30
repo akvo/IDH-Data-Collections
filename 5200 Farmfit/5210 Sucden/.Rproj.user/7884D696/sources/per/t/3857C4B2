@@ -1,0 +1,26 @@
+{
+    "id": "3857C4B2",
+    "path": "~/akvo-data-science/IDH/Sucden/data_cleaning_sucden_2022_farmfit.R",
+    "project_path": "data_cleaning_sucden_2022_farmfit.R",
+    "type": "r_source",
+    "hash": "1499677874",
+    "contents": "",
+    "dirty": false,
+    "created": 1654525194909.0,
+    "source_on_save": false,
+    "relative_order": 1,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "1156,32",
+        "scrollLine": "1148"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1654593442,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1654593442879,
+    "read_only": false,
+    "read_only_alternatives": []
+}

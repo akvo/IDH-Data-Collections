@@ -1,0 +1,230 @@
+
+---
+title: "Farmer_list_matching"
+output: html_document
+date: "2023-07-25"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Import the personal information file of the PDC 1 from the case.
+
+```{r}
+baseline_1 <- read_excel("24092021_rgl_beans_raw_data.xlsx")
+baseline_1 <- baseline_1 %>% select(Identifier, pi_location_cascade_1_Region, pi_location_cascade_1_District, name_of_farmer, mobile_number_farmer, hh_farmer_gender)
+baseline_1 <- baseline_1 %>%
+  distinct(Identifier, .keep_all = TRUE)
+
+baseline_2 <- read_excel("24092021_rgl_rice_raw_data.xlsx")
+baseline_2 <- baseline_2 %>% select(Identifier, pi_location_cascade_1_Mkoa, pi_location_cascade_1_Wilaya, name_of_farmer, mobile_number_farmer, hh_farmer_gender)
+baseline_2 <- baseline_2 %>%
+  distinct(Identifier, .keep_all = TRUE)
+names(baseline_2)[names(baseline_2) == "pi_location_cascade_1_Mkoa"] <- "pi_location_cascade_1_Region"
+names(baseline_2)[names(baseline_2) == "pi_location_cascade_1_Wilaya"] <- "pi_location_cascade_1_District"
+
+baseline <- rbind(baseline_1,baseline_2)
+
+baseline$Identifier <- gsub("-", "", baseline$Identifier)
+```
+```{r}
+table(baseline$pi_location_cascade_1_Region, baseline$hh_farmer_gender)
+```
+
+
+```{r}
+# Some data cleaning in baseline 
+#3baseline <- baseline %>% mutate(mobile_number_farmer = ifelse(identifier == "n9jr-aa5a-68kq", "0786909569", mobile_number_farmer))
+#baseline <- baseline %>% mutate(mobile_number_farmer = ifelse(identifier == "75wr-y84m-f6wj", "0785664956", mobile_number_farmer))
+#baseline$mobile_number_farmer <- gsub("-", "", baseline$mobile_number_farmer)
+#baseline <- baseline %>%drop_na(mobile_number_farmer)
+
+```
+
+Import the available farmer list for endline.
+
+```{r, include = FALSE}
+farmer_list_endline <- read_excel("0035_All_Farmers_20230728.xlsx")
+colnames(farmer_list_endline)[colnames(farmer_list_endline) == "Phone number"] <- "mobile_number_farmer"
+farmer_list_endline$mobile_number_farmer <- paste0("0", farmer_list_endline$mobile_number_farmer)
+
+duplicated_rows <- farmer_list_endline[duplicated(farmer_list_endline$mobile_number_farmer), ]
+print(duplicated_rows)
+
+```
+
+```{r}
+table(farmer_list_endline$Region, farmer_list_endline$Gender)
+```
+
+## Matching 
+
+We can try and match farmers with a merge function setting all.x at FALSE so that it only contains the double farmers
+
+```{r}
+#merged_data <- merge(baseline, Farmer_list_ussl, by = "mobile_number_farmer", all.x = TRUE, all.y = FALSE)
+merged_data <- baseline %>% left_join( farmer_list_endline, by="mobile_number_farmer")
+```
+
+```{r}
+# create now column to indicate whether there is a match or not 
+merged_data$match <- ifelse(is.na(merged_data$`Group code`), FALSE, TRUE)
+```
+
+```{r}
+table(merged_data$match)
+```
+
+We can try to match additional farmers based on name.
+
+First get all names in lowercase
+```{r}
+baseline$name_of_farmer <- tolower(baseline$name_of_farmer)
+farmer_list_endline$`Farmer name` <- tolower(farmer_list_endline$`Farmer name`)
+colnames(farmer_list_endline)[colnames(farmer_list_endline) == "Farmer name"] <- "name_of_farmer"
+```
+
+```{r}
+merged_data <- merged_data %>% select(-c("Group code", "Group name", "Farmer name", "Gender", "Date of birth", "Village", "Ward", "District", "Region", "Produce", "Registered"))
+merged_data$name_of_farmer <- tolower(merged_data$name_of_farmer)
+
+#merge again on 'name_of_farmer'
+merged_data <- merged_data %>% left_join( farmer_list_endline, by="name_of_farmer")
+merged_data$match <- ifelse(merged_data$match ==FALSE & is.na(merged_data$`Group code`), FALSE, TRUE)
+
+```
+```{r}
+merged_data <- merged_data %>%
+  distinct(Identifier, .keep_all = TRUE)
+
+table(merged_data$pi_location_cascade_1_Region, merged_data$hh_farmer_gender, merged_data$match)
+```
+
+
+## Match to retrieve sample = starting from farmer list 
+```{r}
+farmer_list_endline <- farmer_list_endline %>% left_join(baseline, by = "mobile_number_farmer")
+
+farmer_list_endline <- farmer_list_endline %>% select(-c("name_of_farmer.y", "pi_location_cascade_1_Region", "pi_location_cascade_1_District", "hh_farmer_gender"))
+
+colnames(farmer_list_endline)[colnames(farmer_list_endline) == "name_of_farmer.x"] <- "name_of_farmer"
+
+farmer_list_endline <- farmer_list_endline %>% left_join(baseline, by = "name_of_farmer")
+
+farmer_list_endline <- farmer_list_endline %>% select(-c("pi_location_cascade_1_Region", "pi_location_cascade_1_District", "hh_farmer_gender"))
+
+farmer_list_endline$match <- ifelse(is.na(farmer_list_endline$Identifier.x) & is.na(farmer_list_endline$Identifier.y), FALSE, TRUE)
+colnames(farmer_list_endline)[colnames(farmer_list_endline) == "identifier.x"] <- "match_phone"
+colnames(farmer_list_endline)[colnames(farmer_list_endline) == "identifier.y"] <- "match_name"
+
+```
+
+```{r}
+table(farmer_list_endline$match)
+```
+
+
+Make the sample
+
+```{r}
+sample <- Farmer_list_ussl[Farmer_list_ussl$match == TRUE,]
+```
+
+Make random sample of 51 male farmers Arusha.
+
+```{r}
+male_arusha <- Farmer_list_ussl[(Farmer_list_ussl$region== "Arusha Karatu" & Farmer_list_ussl$`GENDER:`=="MALE" & Farmer_list_ussl$match == FALSE),]
+
+# Set the seed for reproducibility (optional)
+set.seed(123)
+
+# Number of rows to randomly pick
+n_rows_to_pick <- 51
+
+# Get the total number of rows in the dataframe
+total_rows <- nrow(male_arusha)
+
+# Randomly select 51 row indices without replacement
+random_row_indices <- sample(1:total_rows, n_rows_to_pick, replace = FALSE)
+
+# Extract the randomly selected rows from the dataframe
+male_arusha_sample <- male_arusha[random_row_indices, ]
+```
+
+Make random sample of 11 female farmers from Arusha
+
+```{r}
+female_arusha <- Farmer_list_ussl[(Farmer_list_ussl$region== "Arusha Karatu" & Farmer_list_ussl$`GENDER:`=="FEMALE" & Farmer_list_ussl$match == FALSE),]
+
+# Set the seed for reproducibility (optional)
+set.seed(123)
+
+# Number of rows to randomly pick
+n_rows_to_pick <- 11
+
+# Get the total number of rows in the dataframe
+total_rows <- nrow(female_arusha)
+
+# Randomly select 51 row indices without replacement
+random_row_indices <- sample(1:total_rows, n_rows_to_pick, replace = FALSE)
+
+# Extract the randomly selected rows from the dataframe
+female_arusha_sample <- female_arusha[random_row_indices, ]
+```
+
+Make random sample of 195 male farmers from Manyara
+
+```{r}
+male_manyara <- Farmer_list_ussl[((Farmer_list_ussl$region== "Manyara Mbulu" | Farmer_list_ussl$region== "Manyara Babati") & Farmer_list_ussl$`GENDER:`=="MALE" & Farmer_list_ussl$match == FALSE),]
+
+# Set the seed for reproducibility (optional)
+set.seed(123)
+
+# Number of rows to randomly pick
+n_rows_to_pick <- 195
+
+# Get the total number of rows in the dataframe
+total_rows <- nrow(male_manyara)
+
+# Randomly select 51 row indices without replacement
+random_row_indices <- sample(1:total_rows, n_rows_to_pick, replace = FALSE)
+
+# Extract the randomly selected rows from the dataframe
+male_manyara_sample <- male_manyara[random_row_indices, ]
+```
+
+Make random sample of 48 female farmers from Manyara
+
+```{r}
+female_manyara <- Farmer_list_ussl[((Farmer_list_ussl$region== "Manyara Mbulu" | Farmer_list_ussl$region== "Manyara Babati") & Farmer_list_ussl$`GENDER:`=="FEMALE" & Farmer_list_ussl$match == FALSE),]
+
+# Set the seed for reproducibility (optional)
+set.seed(123)
+
+# Number of rows to randomly pick
+n_rows_to_pick <- 48
+
+# Get the total number of rows in the dataframe
+total_rows <- nrow(female_manyara)
+
+# Randomly select 51 row indices without replacement
+random_row_indices <- sample(1:total_rows, n_rows_to_pick, replace = FALSE)
+
+# Extract the randomly selected rows from the dataframe
+female_manyara_sample <- female_manyara[random_row_indices, ]
+```
+
+Merge the different random sets with the recurring farmers 
+
+```{r}
+sample <- rbind(sample, male_arusha_sample, female_arusha_sample, male_manyara_sample, female_manyara_sample)
+```
+
+Export the full farmer list and the sample.
+
+```{r}
+write.xlsx(Farmer_list_ussl, "Farmer_list_ussl_endline.xlsx")
+write.xlsx(sample, "sample_ussl_endline.xlsx")
+```
+

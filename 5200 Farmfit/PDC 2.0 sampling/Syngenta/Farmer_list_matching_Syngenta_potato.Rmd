@@ -1,0 +1,170 @@
+
+---
+title: "Farmer_list_matching"
+output: html_document
+date: "2023-07-25"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Import the personal information file of the PDC 1 from the case.
+
+```{r}
+baseline <- read_excel("pi_syngenta_potatoes.xlsx")
+baseline$identifier <- gsub("-", "", baseline$identifier)
+
+full_data <- read_excel("kenya-syngenta_potatoes.xlsx")
+full_data <- full_data %>% select(c("identifier", "hh_farmer_gender"))
+
+baseline <- baseline %>% left_join( full_data, by="identifier")
+
+# Remove duplicates from baseline based on mobile_number_farmer
+baseline <- baseline %>%
+  distinct(mobile_number_farmer, .keep_all = TRUE)
+
+# remove empty row
+baseline <- baseline %>%
+  filter(identifier != "q6d9ua8y0jkr")
+
+```
+
+```{r}
+table(baseline$hh_farmer_gender)
+```
+
+Import the available farmer list for endline.
+
+```{r, include = FALSE}
+farmer_list_endline_1 <- read_excel("farmer_list_endline_syngenta.xlsx", sheet = 1)
+farmer_list_endline_1$location <- "Nakuru"
+farmer_list_endline_1$service <- "Loan"
+farmer_list_endline_1$`Year of Engagement` <- NA
+
+farmer_list_endline_2 <- read_excel("farmer_list_endline_syngenta.xlsx", sheet = 4)
+farmer_list_endline_2$location <- "Nakuru"
+farmer_list_endline_2$service <- "Training only"
+
+farmer_list_endline <- rbind(farmer_list_endline_1, farmer_list_endline_2)
+
+farmer_list_endline$`Mobile Number`<- paste0("0", farmer_list_endline$`Mobile Number`)
+
+# remove duplicates from farmer_list_endline based on mobile_number_farmer
+farmer_list_endline <- farmer_list_endline %>%
+  distinct(`Mobile Number`, .keep_all = TRUE)
+```
+
+```{r}
+table(farmer_list_endline$location, farmer_list_endline$service)
+```
+
+
+```{r, include = FALSE}
+# Rename the Mobile number column to mobile_number_farmer
+colnames(farmer_list_endline)[colnames(farmer_list_endline) == "Mobile Number"] <- "mobile_number_farmer"
+
+```
+
+## Matching 
+
+We can try and match farmers with a left join function
+
+
+```{r}
+merged_data <- baseline %>% left_join(farmer_list_endline, by="mobile_number_farmer")
+```
+
+```{r}
+# create now column to indicate whether there is a match or not 
+merged_data$match <- ifelse(is.na(merged_data$Ward), FALSE, TRUE)
+```
+
+```{r}
+table(merged_data$match)
+```
+
+
+
+## Match to retrieve sample = starting from farmer list 
+
+```{r}
+# Merge baseline on mobile number 
+farmer_list_endline <- farmer_list_endline %>% left_join(baseline, by = "mobile_number_farmer")
+
+farmer_list_endline <- farmer_list_endline %>% select(-c( "pi_location_cascade_sub_county","pi_location_other", "pi_location_other_first_admin", "pi_location_other_second_admin", "pi_location_other_third_admin", "pi_location_other_village", "pi_geolocation_latitude", "pi_geolocation_longitude", "pi_location_cascade_area", "pi_geolocation_elevation","hh_farmer_gender", "name_of_farmer"))
+
+farmer_list_endline$match <- ifelse(is.na(farmer_list_endline$identifier), FALSE, TRUE)
+colnames(farmer_list_endline)[colnames(farmer_list_endline) == "identifier"] <- "match_phone"
+
+```
+
+Make the sample
+
+```{r}
+sample <- farmer_list_endline[farmer_list_endline$match == TRUE,]
+
+```
+
+Make random sample of 70 farmers Nakuru receiving loans.
+
+```{r}
+nakuru_loan <- farmer_list_endline[(farmer_list_endline$service == "Loan" & farmer_list_endline$match == FALSE),]
+
+# Set the seed for reproducibility (optional)
+set.seed(123)
+
+# Number of rows to randomly pick
+n_rows_to_pick <- 70
+
+# Get the total number of rows in the dataframe
+total_rows <- nrow(nakuru_loan)
+
+# Randomly select 51 row indices without replacement
+random_row_indices <- sample(1:total_rows, n_rows_to_pick, replace = FALSE)
+
+# Extract the randomly selected rows from the dataframe
+nakuru_loan_sample <- nakuru_loan[random_row_indices, ]
+```
+
+Make random sample of 52 farmers Nakuru receiving training only
+
+```{r}
+nakuru_training <- farmer_list_endline[(farmer_list_endline$service == "Training only" & farmer_list_endline$match == FALSE),]
+
+# Set the seed for reproducibility (optional)
+set.seed(123)
+
+# Number of rows to randomly pick
+n_rows_to_pick <- 52
+
+# Get the total number of rows in the dataframe
+total_rows <- nrow(nakuru_training)
+
+# Randomly select 51 row indices without replacement
+random_row_indices <- sample(1:total_rows, n_rows_to_pick, replace = FALSE)
+
+# Extract the randomly selected rows from the dataframe
+nakuru_training_sample <- nakuru_training[random_row_indices, ]
+```
+
+Merge the different random sets with the recurring farmers 
+
+```{r}
+sample_potato <- rbind(sample, nakuru_loan_sample, nakuru_training_sample)
+```
+
+Export the full farmer list and the sample.
+
+```{r}
+write.xlsx(farmer_list_endline, "Farmer_list_syngenta_potato_endline.xlsx")
+write.xlsx(sample_potato, "sample_syngenta_potato_endline.xlsx")
+```
+
+```{r}
+#Final sample
+sample <- rbind(sample_potato, sample_tomato)
+write.xlsx(sample, "FINAL_sample_syngenta_endline.xlsx")
+
+```
+
