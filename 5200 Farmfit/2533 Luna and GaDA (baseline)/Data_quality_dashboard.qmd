@@ -1,0 +1,716 @@
+---
+title: "Dashboard Prep"
+author: "Halimata Sawadogo"
+format: html
+editor: visual
+---
+
+# Libraries
+
+```{r}
+library(readxl)
+library(writexl)
+library(dplyr)
+library(tidyverse)
+library(tidyr)
+```
+
+# Data
+
+```{r}
+data <- read_xlsx("Data_IDH_Luna_and_GaDA_Ethiopia.xlsx")
+maize_repeat_revenue <- read_xlsx("Data_IDH_Luna_and_GaDA_Ethiopia.xlsx", sheet = "maize_repeat_revenue")
+soybean_repeat_revenue <- read_xlsx("Data_IDH_Luna_and_GaDA_Ethiopia.xlsx", sheet = "soybean_repeat_revenue")
+sunflower_repeat_revenue <- read_xlsx("Data_IDH_Luna_and_GaDA_Ethiopia.xlsx", sheet = "sunflower_repeat_revenue")
+onion_repeat_revenue <- read_xlsx("Data_IDH_Luna_and_GaDA_Ethiopia.xlsx", sheet = "onion_repeat_revenue")
+
+input_use_costs_repeat <- read_xlsx("Data_IDH_Luna_and_GaDA_Ethiopia.xlsx", sheet = "input_use_costs_repeat")
+labour_use_repeat <- read_xlsx("Data_IDH_Luna_and_GaDA_Ethiopia.xlsx", sheet = "labour_use_repeat")
+
+company_loop_maize <- read_xlsx("Data_IDH_Luna_and_GaDA_Ethiopia.xlsx", sheet = "maize_company_loop")
+company_loop_soybean <- read_xlsx("Data_IDH_Luna_and_GaDA_Ethiopia.xlsx", sheet = "company_loop_soybean")
+company_loop_sunflower <- read_xlsx("Data_IDH_Luna_and_GaDA_Ethiopia.xlsx", sheet = "company_loop_sunflower")
+company_loop_onion <- read_xlsx("Data_IDH_Luna_and_GaDA_Ethiopia.xlsx", sheet = "company_loop_onion")
+company_loop_organization <- read_xlsx("Data_IDH_Luna_and_GaDA_Ethiopia.xlsx", sheet = "company_loop_organization")
+
+
+```
+
+# Revenue Repeat Sheet
+
+## 1. Measurements and Quantities
+
+### a. Measurement Prod
+
+```{r}
+#Maize
+print(maize_repeat_revenue$f_maize_measurement_prod_other)
+maize_repeat_revenue <- maize_repeat_revenue %>%
+  mutate(
+    cal_maize_measurement_prod := ifelse(f_maize_measurement_prod == "Quintal", 
+                                          100, 
+                                         ifelse(f_maize_measurement_prod == "50 kgs bag", 
+                                          50,
+                                           ifelse(f_maize_measurement_prod == "Kg", 
+                                          1,
+                                          ifelse(f_maize_measurement_prod == "Other", 
+                                                parse_number(f_maize_measurement_prod_other),
+                                                 NA)))), 
+    f_maize_quant_prod = ifelse(f_maize_quant_prod == 9999 | f_maize_quant_prod == 9998, NA, f_maize_quant_prod ), 
+    cal_maize_quant_prod = f_maize_quant_prod*cal_maize_measurement_prod
+    ) 
+
+  print(maize_repeat_revenue$cal_maize_measurement_prod)
+  print(maize_repeat_revenue$cal_maize_quant_prod)
+  
+  #Onion
+print(onion_repeat_revenue$f_onion_measurement_prod_other)
+onion_repeat_revenue <- onion_repeat_revenue %>%
+  mutate(
+    cal_onion_measurement_prod := ifelse(f_onion_measurement_prod == "Quintal", 
+                                          100, 
+                                         ifelse(f_onion_measurement_prod == "50 kgs bag", 
+                                          50,
+                                           ifelse(f_onion_measurement_prod == "Kg", 
+                                          1,
+                                          ifelse(f_onion_measurement_prod == "Other", 
+                                                parse_number(f_onion_measurement_prod_other),
+                                                 NA)))), 
+    f_onion_quant_prod = ifelse(f_onion_quant_prod == 9999 | f_onion_quant_prod == 9998, NA, f_onion_quant_prod ), 
+    cal_onion_quant_prod = f_onion_quant_prod*cal_onion_measurement_prod
+    ) 
+
+  print(onion_repeat_revenue$cal_onion_measurement_prod)
+  print(onion_repeat_revenue$cal_onion_quant_prod)
+  
+  
+  #Sunflower
+print(sunflower_repeat_revenue$f_sunflower_measurement_prod_other)
+sunflower_repeat_revenue <- sunflower_repeat_revenue %>%
+  mutate(
+    cal_sunflower_measurement_prod := ifelse(f_sunflower_measurement_prod == "Quintal", 
+                                          100, 
+                                         ifelse(f_sunflower_measurement_prod == "50 kgs bag", 
+                                          50,
+                                           ifelse(f_sunflower_measurement_prod == "Kg", 
+                                          1,
+                                          ifelse(f_sunflower_measurement_prod == "Other", 
+                                                parse_number(f_sunflower_measurement_prod_other),
+                                                 NA)))), 
+    f_sunflower_quant_prod = ifelse(f_sunflower_quant_prod == 9999 | f_sunflower_quant_prod == 9998, NA, f_sunflower_quant_prod ), 
+    cal_sunflower_quant_prod = f_sunflower_quant_prod*cal_sunflower_measurement_prod
+    ) 
+
+  print(sunflower_repeat_revenue$cal_sunflower_measurement_prod)
+  print(sunflower_repeat_revenue$cal_sunflower_quant_prod)
+  
+  
+  #Soybean
+print(soybean_repeat_revenue$f_soybean_measurement_prod_other)
+soybean_repeat_revenue <- soybean_repeat_revenue %>%
+  mutate(
+    cal_soybean_measurement_prod := ifelse(f_soybean_measurement_prod == "Quintal", 
+                                          100, 
+                                         ifelse(f_soybean_measurement_prod == "50 kgs bag", 
+                                          50,
+                                           ifelse(f_soybean_measurement_prod == "Kg", 
+                                          1,
+                                          ifelse(f_soybean_measurement_prod == "Other", 
+                                                parse_number(f_soybean_measurement_prod_other),
+                                                 NA)))), 
+    f_soybean_quant_prod = ifelse(f_soybean_quant_prod == 9999 | f_soybean_quant_prod == 9998, NA, f_soybean_quant_prod ), 
+    cal_soybean_quant_prod = f_soybean_quant_prod*cal_soybean_measurement_prod
+    ) 
+
+  print(soybean_repeat_revenue$cal_soybean_measurement_prod)
+  print(soybean_repeat_revenue$cal_soybean_quant_prod)
+```
+
+### b. Measurement Sold
+
+```{r}
+#Maize
+print(maize_repeat_revenue$f_maize_measurement_sold_other)
+maize_repeat_revenue <- maize_repeat_revenue %>%
+  mutate(cal_maize_measurement_sold := ifelse(f_maize_measurement_sold == "Quintal", 
+                                          100, 
+                                         ifelse(f_maize_measurement_sold == "50 kgs bag", 
+                                          50,
+                                           ifelse(f_maize_measurement_sold == "Kg", 
+                                          1,
+                                          ifelse(f_maize_measurement_sold == "Other", 
+                                                parse_number(f_maize_measurement_sold_other),
+                                                 NA)))), 
+      f_maize_quant_sold = ifelse(f_maize_quant_sold == 9999 | f_maize_quant_sold == 9998, NA, f_maize_quant_sold ),
+      cal_maize_quant_sold = f_maize_quant_sold * cal_maize_measurement_sold
+      ) 
+
+print(maize_repeat_revenue$cal_maize_measurement_sold)
+print(maize_repeat_revenue$cal_maize_quant_sold)
+
+#Onion
+print(onion_repeat_revenue$f_onion_measurement_sold_other)
+onion_repeat_revenue <- onion_repeat_revenue %>%
+  mutate(cal_onion_measurement_sold := ifelse(f_onion_measurement_sold == "Quintal", 
+                                          100, 
+                                         ifelse(f_onion_measurement_sold == "50 kgs bag", 
+                                          50,
+                                           ifelse(f_onion_measurement_sold == "Kg", 
+                                          1,
+                                          ifelse(f_onion_measurement_sold == "Other", 
+                                                parse_number(f_onion_measurement_sold_other),
+                                                 NA)))), 
+      f_onion_quant_sold = ifelse(f_onion_quant_sold == 9999 | f_onion_quant_sold == 9998, NA, f_onion_quant_sold ),
+      cal_onion_quant_sold = f_onion_quant_sold * cal_onion_measurement_sold
+      ) 
+
+print(onion_repeat_revenue$cal_onion_measurement_sold)
+print(onion_repeat_revenue$cal_onion_quant_sold)
+
+
+#Sunflower
+print(sunflower_repeat_revenue$f_sunflower_measurement_sold_other)
+sunflower_repeat_revenue <- sunflower_repeat_revenue %>%
+  mutate(cal_sunflower_measurement_sold := ifelse(f_sunflower_measurement_sold == "Quintal", 
+                                          100, 
+                                         ifelse(f_sunflower_measurement_sold == "50 kgs bag", 
+                                          50,
+                                           ifelse(f_sunflower_measurement_sold == "Kg", 
+                                          1,
+                                          ifelse(f_sunflower_measurement_sold == "Other", 
+                                                parse_number(f_sunflower_measurement_sold_other),
+                                                 NA)))), 
+      f_sunflower_quant_sold = ifelse(f_sunflower_quant_sold == 9999 | f_sunflower_quant_sold == 9998, NA, f_sunflower_quant_sold ),
+      cal_sunflower_quant_sold = f_sunflower_quant_sold * cal_sunflower_measurement_sold
+      ) 
+
+print(sunflower_repeat_revenue$cal_sunflower_measurement_sold)
+print(sunflower_repeat_revenue$cal_sunflower_quant_sold)
+
+
+#Soybean
+print(soybean_repeat_revenue$f_soybean_measurement_sold_other)
+soybean_repeat_revenue <- soybean_repeat_revenue %>%
+  mutate(cal_soybean_measurement_sold := ifelse(f_soybean_measurement_sold == "Quintal", 
+                                          100, 
+                                         ifelse(f_soybean_measurement_sold == "50 kgs bag", 
+                                          50,
+                                           ifelse(f_soybean_measurement_sold == "Kg", 
+                                          1,
+                                          ifelse(f_soybean_measurement_sold == "Other", 
+                                                parse_number(f_soybean_measurement_sold_other),
+                                                 NA)))), 
+      f_soybean_quant_sold = ifelse(f_soybean_quant_sold == 9999 | f_soybean_quant_sold == 9998, NA, f_soybean_quant_sold ),
+      cal_soybean_quant_sold = f_soybean_quant_sold * cal_soybean_measurement_sold
+      ) 
+
+print(soybean_repeat_revenue$cal_soybean_measurement_sold)
+print(soybean_repeat_revenue$cal_soybean_quant_sold)
+
+
+```
+
+### c. Measurement Sold Premium
+
+```{r}
+# print(revenue_repeat$f_focus_measurement_sold_premium_other)
+# revenue_repeat <- revenue_repeat %>%
+#   mutate(cal_focus_measurement_sold_premium := ifelse(f_focus_measurement_sold_premium == 1, 
+#       1, 
+#       ifelse(f_focus_measurement_sold_premium == 77, 
+#              parse_number(f_focus_measurement_sold_premium_other),
+#              0)),
+#       f_focus_quant_sold_premium = ifelse(f_focus_quant_sold_premium == 9999 | f_focus_quant_sold_premium == 9998, NA, f_focus_quant_sold_premium ),
+#       cal_focus_quant_sold_premium = f_focus_quant_sold_premium* cal_focus_measurement_sold_premium) 
+# 
+#   print(revenue_repeat$cal_focus_measurement_sold_premium)
+#   print(revenue_repeat$cal_focus_quant_sold_premium)
+```
+
+### d. Measurement Lost
+
+```{r}
+#Maize
+print(maize_repeat_revenue$f_maize_measurement_lost_other)
+maize_repeat_revenue <- maize_repeat_revenue %>%
+  mutate(cal_maize_measurement_lost := ifelse(f_maize_measurement_lost == "Quintal", 
+                                          100, 
+                                         ifelse(f_maize_measurement_lost == "50 kgs bag", 
+                                          50,
+                                           ifelse(f_maize_measurement_lost == "Kg", 
+                                          1,
+                                          ifelse(f_maize_measurement_lost == "Other", 
+                                                parse_number(f_maize_measurement_lost_other),
+                                                 NA)))), 
+      f_maize_quant_lost = ifelse(f_maize_quant_lost == 9999 | f_maize_quant_lost == 9998, NA, f_maize_quant_lost ),
+      cal_maize_quant_lost = f_maize_quant_lost * cal_maize_measurement_lost
+      ) 
+
+print(maize_repeat_revenue$cal_maize_measurement_lost)
+print(maize_repeat_revenue$cal_maize_quant_lost)
+
+#Onion
+print(onion_repeat_revenue$f_onion_measurement_lost_other)
+onion_repeat_revenue <- onion_repeat_revenue %>%
+  mutate(cal_onion_measurement_lost := ifelse(f_onion_measurement_lost == "Quintal", 
+                                          100, 
+                                         ifelse(f_onion_measurement_lost == "50 kgs bag", 
+                                          50,
+                                           ifelse(f_onion_measurement_lost == "Kg", 
+                                          1,
+                                          ifelse(f_onion_measurement_lost == "Other", 
+                                                parse_number(f_onion_measurement_lost_other),
+                                                 NA)))), 
+      f_onion_quant_lost = ifelse(f_onion_quant_lost == 9999 | f_onion_quant_lost == 9998, NA, f_onion_quant_lost ),
+      cal_onion_quant_lost = f_onion_quant_lost * cal_onion_measurement_lost
+      ) 
+
+print(onion_repeat_revenue$cal_onion_measurement_lost)
+print(onion_repeat_revenue$cal_onion_quant_lost)
+
+#Sunflower
+print(sunflower_repeat_revenue$f_sunflower_measurement_lost_other)
+sunflower_repeat_revenue <- sunflower_repeat_revenue %>%
+  mutate(cal_sunflower_measurement_lost := ifelse(f_sunflower_measurement_lost == "Quintal", 
+                                          100, 
+                                         ifelse(f_sunflower_measurement_lost == "50 kgs bag", 
+                                          50,
+                                           ifelse(f_sunflower_measurement_lost == "Kg", 
+                                          1,
+                                          ifelse(f_sunflower_measurement_lost == "Other", 
+                                                parse_number(f_sunflower_measurement_lost_other),
+                                                 NA)))), 
+      f_sunflower_quant_lost = ifelse(f_sunflower_quant_lost == 9999 | f_sunflower_quant_lost == 9998, NA, f_sunflower_quant_lost ),
+      cal_sunflower_quant_lost = f_sunflower_quant_lost * cal_sunflower_measurement_lost
+      ) 
+
+print(sunflower_repeat_revenue$cal_sunflower_measurement_lost)
+print(sunflower_repeat_revenue$cal_sunflower_quant_lost)
+
+#Soybean
+print(soybean_repeat_revenue$f_soybean_measurement_lost_other)
+soybean_repeat_revenue <- soybean_repeat_revenue %>%
+  mutate(cal_soybean_measurement_lost := ifelse(f_soybean_measurement_lost == "Quintal", 
+                                          100, 
+                                         ifelse(f_soybean_measurement_lost == "50 kgs bag", 
+                                          50,
+                                           ifelse(f_soybean_measurement_lost == "Kg", 
+                                          1,
+                                          ifelse(f_soybean_measurement_lost == "Other", 
+                                                parse_number(f_soybean_measurement_lost_other),
+                                                 NA)))), 
+      f_soybean_quant_lost = ifelse(f_soybean_quant_lost == 9999 | f_soybean_quant_lost == 9998, NA, f_soybean_quant_lost ),
+      cal_soybean_quant_lost = f_soybean_quant_lost * cal_soybean_measurement_lost
+      ) 
+
+print(soybean_repeat_revenue$cal_soybean_measurement_lost)
+print(soybean_repeat_revenue$cal_soybean_quant_lost)
+
+```
+
+## 2. Combining values
+
+```{r}
+#as we have some farmer reporting more than one season, aggregate values to have the total. use mean for the price
+maize_quant_price <- maize_repeat_revenue %>%
+  mutate(f_maize_price = ifelse(f_maize_price==9999|f_maize_price==9998,NA, f_maize_price))%>%
+  group_by(`_submission__id`) %>%
+  ## Summarize data for each submission
+  summarise(cal_maize_quant_prod_kg = sum(cal_maize_quant_prod, na.rm = TRUE), 
+            cal_maize_quant_sold_kg = sum(cal_maize_quant_sold, na.rm = TRUE),
+            cal_maize_quant_lost_kg = sum(cal_maize_quant_lost, na.rm = TRUE),
+            cal_maize_price = mean(f_maize_price), 
+            # Take the first reported value
+            cal_maize_measurement_sold = first(cal_maize_measurement_sold),
+            f_maize_measurement_sold = first(f_maize_measurement_sold),
+            f_maize_measurement_sold_other = first(f_maize_measurement_sold_other),
+            f_maize_measurement_prod = first(f_maize_measurement_prod),
+            f_maize_measurement_prod_other = first(f_maize_measurement_prod_other)
+            )
+
+#Onion
+onion_quant_price <- onion_repeat_revenue %>%
+  mutate(f_onion_price = ifelse(f_onion_price==9999|f_onion_price==9998,NA, f_onion_price))%>%
+  group_by(`_submission__id`) %>%
+  ## Summarize data for each submission
+  summarise(cal_onion_quant_prod_kg = sum(cal_onion_quant_prod, na.rm = TRUE), 
+            cal_onion_quant_sold_kg = sum(cal_onion_quant_sold, na.rm = TRUE),
+            cal_onion_quant_lost_kg = sum(cal_onion_quant_lost, na.rm = TRUE),
+            cal_onion_price = mean(f_onion_price), 
+            # Take the first reported value
+            cal_onion_measurement_sold = first(cal_onion_measurement_sold),
+            f_onion_measurement_sold = first(f_onion_measurement_sold),
+            f_onion_measurement_sold_other = first(f_onion_measurement_sold_other),
+            f_onion_measurement_prod = first(f_onion_measurement_prod),
+            f_onion_measurement_prod_other = first(f_onion_measurement_prod_other)
+            )
+
+#Sunflower
+sunflower_quant_price <- sunflower_repeat_revenue %>%
+  mutate(f_sunflower_price = ifelse(f_sunflower_price==9999|f_sunflower_price==9998,NA, f_sunflower_price))%>%
+  group_by(`_submission__id`) %>%
+  ## Summarize data for each submission
+  summarise(cal_sunflower_quant_prod_kg = sum(cal_sunflower_quant_prod, na.rm = TRUE), 
+            cal_sunflower_quant_sold_kg = sum(cal_sunflower_quant_sold, na.rm = TRUE),
+            cal_sunflower_quant_lost_kg = sum(cal_sunflower_quant_lost, na.rm = TRUE),
+            cal_sunflower_price = mean(f_sunflower_price), 
+            # Take the first reported value
+            cal_sunflower_measurement_sold = first(cal_sunflower_measurement_sold),
+            f_sunflower_measurement_sold = first(f_sunflower_measurement_sold),
+            f_sunflower_measurement_sold_other = first(f_sunflower_measurement_sold_other),
+            f_sunflower_measurement_prod = first(f_sunflower_measurement_prod),
+            f_sunflower_measurement_prod_other = first(f_sunflower_measurement_prod_other)
+            )
+
+#Soybean
+soybean_quant_price <- soybean_repeat_revenue %>%
+  mutate(f_soybean_price = ifelse(f_soybean_price==9999|f_soybean_price==9998,NA, f_soybean_price))%>%
+  group_by(`_submission__id`) %>%
+  ## Summarize data for each submission
+  summarise(cal_soybean_quant_prod_kg = sum(cal_soybean_quant_prod, na.rm = TRUE), 
+            cal_soybean_quant_sold_kg = sum(cal_soybean_quant_sold, na.rm = TRUE),
+            cal_soybean_quant_lost_kg = sum(cal_soybean_quant_lost, na.rm = TRUE),
+            cal_soybean_price = mean(f_soybean_price), 
+            # Take the first reported value
+            cal_soybean_measurement_sold = first(cal_soybean_measurement_sold),
+            f_soybean_measurement_sold = first(f_soybean_measurement_sold),
+            f_soybean_measurement_sold_other = first(f_soybean_measurement_sold_other),
+            f_soybean_measurement_prod = first(f_soybean_measurement_prod),
+            f_soybean_measurement_prod_other = first(f_soybean_measurement_prod_other)
+            )
+```
+
+# Company loop
+
+```{r}
+
+#Maize
+company_loop_maize_summary <- company_loop_maize %>%
+  group_by(`_submission__id`) %>%
+  mutate(
+    f_maize_quant_sold_cs_sdm_company = ifelse(f_maize_quant_sold_cs_sdm_company==9999|f_maize_quant_sold_cs_sdm_company==9998,NA,f_maize_quant_sold_cs_sdm_company))%>%
+    
+  summarise(cal_maize_quant_sold_cs_sdm_company = sum(f_maize_quant_sold_cs_sdm_company, na.rm = TRUE))
+
+#Onion
+company_loop_onion_summary <- company_loop_onion %>%
+  group_by(`_submission__id`) %>%
+  mutate(
+    f_onion_quant_sold_cs_sdm_company = ifelse(f_onion_quant_sold_cs_sdm_company==9999|f_onion_quant_sold_cs_sdm_company==9998,NA,f_onion_quant_sold_cs_sdm_company))%>%
+    
+  summarise(cal_onion_quant_sold_cs_sdm_company = sum(f_onion_quant_sold_cs_sdm_company, na.rm = TRUE))
+
+#Sunflower
+company_loop_sunflower_summary <- company_loop_sunflower %>%
+  group_by(`_submission__id`) %>%
+  mutate(
+    f_sunflower_quant_sold_cs_sdm_company = ifelse(f_sunflower_quant_sold_cs_sdm_company==9999|f_sunflower_quant_sold_cs_sdm_company==9998,NA,f_sunflower_quant_sold_cs_sdm_company))%>%
+    
+  summarise(cal_sunflower_quant_sold_cs_sdm_company = sum(f_sunflower_quant_sold_cs_sdm_company, na.rm = TRUE))
+
+#Soybean
+company_loop_soybean_summary <- company_loop_soybean %>%
+  group_by(`_submission__id`) %>%
+  mutate(
+    f_soybean_quant_sold_cs_sdm_company = ifelse(f_soybean_quant_sold_cs_sdm_company==9999|f_soybean_quant_sold_cs_sdm_company==9998,NA,f_soybean_quant_sold_cs_sdm_company))%>%
+    
+  summarise(cal_soybean_quant_sold_cs_sdm_company = sum(f_soybean_quant_sold_cs_sdm_company, na.rm = TRUE))
+
+
+#Organization
+company_loop_organization_summary <- company_loop_organization %>%
+  group_by(`_submission__id`) %>%
+  mutate(
+    cs_sdm_company_services_years = ifelse(cs_sdm_company_services_years==9999|cs_sdm_company_services_years==9998,NA,cs_sdm_company_services_years),
+        cs_sdm_company_yrs_selling = ifelse(cs_sdm_company_yrs_selling==9999|cs_sdm_company_yrs_selling==9998,NA,cs_sdm_company_yrs_selling),
+    cs_sdm_company_contract_duration = ifelse(cs_sdm_company_contract_duration==9999|cs_sdm_company_contract_duration==9998,NA,cs_sdm_company_contract_duration))%>%
+    
+  summarise(cal_cs_sdm_company_services_years = mean(cs_sdm_company_services_years, na.rm = TRUE),
+ cal_cs_sdm_company_yrs_selling = mean(cs_sdm_company_yrs_selling, na.rm = TRUE),
+     cal_cs_sdm_company_contract_duration = mean(cs_sdm_company_contract_duration, na.rm = TRUE)
+  )
+```
+
+# Labour sheet
+
+## 1. Summary of needed vars
+
+```{r}
+
+labour_summary <- labour_use_repeat %>%
+  group_by(`_submission__id`) %>%
+  mutate(
+    f_focus_labour_costs_season = ifelse(f_focus_labour_costs_season==9999|f_focus_labour_costs_season==9998,NA,f_focus_labour_costs_season),
+        f_focus_labour_wage_per_day_female = ifelse(f_focus_labour_wage_per_day_female==9999|f_focus_labour_wage_per_day_female==9998,NA,f_focus_labour_wage_per_day_female),
+    f_focus_labour_wage_per_day_male = ifelse(f_focus_labour_wage_per_day_male==9999|f_focus_labour_wage_per_day_male==9998,NA,f_focus_labour_wage_per_day_male))%>%
+    
+  summarise(cal_focus_labour_costs = sum(f_focus_labour_costs_season, na.rm = TRUE),
+ cal_focus_labour_wage_per_day_female = mean(f_focus_labour_wage_per_day_female, na.rm = TRUE),
+     cal_focus_labour_wage_per_day_male = mean(f_focus_labour_wage_per_day_male, na.rm = TRUE)
+  )
+
+
+
+```
+
+\
+
+# Labour Activities Sheet
+
+## 1. Temporary activity cost
+
+```{r}
+# labour_act <- labour_act %>%
+#   mutate(
+#     f_labour_days_activity = ifelse(f_labour_days_activity==9999|f_labour_days_activity==9998,NA,f_labour_days_activity),
+#     f_labour_temporary_workers_activity= ifelse(f_labour_temporary_workers_activity==9999|f_labour_temporary_workers_activity==9998,NA,f_labour_temporary_workers_activity),
+#     
+#     f_labour_temporary_wage_per_day_activity= ifelse(f_labour_temporary_wage_per_day_activity==9999|f_labour_temporary_wage_per_day_activity==9998,NA,f_labour_temporary_wage_per_day_activity),
+#     
+#     cal_labour_temporary_costs = f_labour_days_activity * f_labour_temporary_workers_activity * f_labour_temporary_wage_per_day_activity) 
+# 
+# temporary_costs_summary <- labour_act %>%
+#   group_by(`_submission__id`) %>%
+#   summarise(cal_labour_temporary_costs = replace_na(sum(cal_labour_temporary_costs, na.rm=TRUE),0))
+```
+
+## 2. Select two
+
+```{r}
+
+# labour_act_summary <- labour_act %>%
+#   group_by(`_submission__id`) %>%
+#   slice_max(order_by = cal_labour_temporary_costs, n = 2, with_ties = FALSE) %>%
+#   mutate(rank = row_number()) %>% 
+#   ungroup() %>%
+#   pivot_wider(
+#     id_cols = `_submission__id`,
+#     names_from = rank,
+#     values_from = c(
+#       current_activity,
+#       f_labour_days_activity,
+#       f_labour_temporary_workers_activity,
+#       f_labour_temporary_wage_per_day_activity,
+#       cal_labour_temporary_costs
+#     ),
+#     names_glue = "{.value}_{rank}"
+#   )
+
+
+```
+
+# Inputs Sheet
+
+## 1. calculating inputs cost
+
+```{r}
+inputs_summary <- input_use_costs_repeat %>%
+    mutate(across(starts_with("f_inputs_cost"), ~ ifelse(.x == 9999 | .x == 9998, NA, .x))) %>%
+  mutate(total_inputs_costs = rowSums(across(starts_with("f_inputs_cost")), na.rm = TRUE)) %>%
+  group_by(`_submission__id`) %>%
+  summarise(cal_inputs_costs = sum(total_inputs_costs, na.rm = TRUE))
+
+```
+
+# Data Sheet
+
+## 1. General farm costs
+
+```{r}
+# columns = c("f_mech_equip_costs","f_nonmech_equip_costs", "f_materials_other_costs", "f_land_costs", "f_coop_fee", "hh_loan_one_value_interest", "hh_loan_one_size", "hh_loan_two_value_interest", "hh_loan_two_size")
+
+columns = c("f_equip_costs","hh_loan_agri_value_interest", "hh_loan_agri_size")
+data <- data %>%
+  mutate(across(all_of(columns), ~ ifelse(.x == 9999 | .x == 9998, NA, .x))) %>%
+  replace_na(list(
+    hh_loan_agri_value_interest = 0,
+    hh_loan_agri_size = 0
+  )) %>%
+  
+  mutate(
+    cal_equipment_costs = f_equip_costs,
+    
+    cal_farm_costs_loan_1 = ifelse(
+      hh_loan_agri_value_interest == 0, 0,
+      hh_loan_agri_size/ (100/ hh_loan_agri_value_interest)
+    ),
+    
+    # cal_farm_costs_loan_2 = ifelse(
+    #   hh_loan_two_value_interest == 0, 0,
+    #   hh_loan_two_size/(100/hh_loan_two_value_interest)
+    # ),
+    # 
+    cal_farm_costs_general = cal_equipment_costs + cal_farm_costs_loan_1  #+ cal_farm_costs_loan_2 + f_land_costs + f_coop_fee
+  )
+
+```
+
+## 3. Other focus cost
+
+```{r}
+data <- data %>%
+    mutate(across(starts_with("f_focus_cost"), ~ ifelse(.x == 9999 | .x == 9998, 0, .x))) %>%
+  mutate(across(starts_with("f_focus_cost"), ~replace_na(.x, 0))) %>%
+  mutate(
+    cal_focus_other_costs = rowSums(across(starts_with("f_focus_cost")))
+  )
+
+```
+
+## 2. Selecting needed columns
+
+```{r}
+
+final <- data %>%
+  rename("_submission__id" = "_id") %>%
+  select(uuid, duration, submitter, admin1_name,admin2_name, admin3_name, f_unit_land, f_size, f_maize_crop_size, f_onion_crop_size, f_sunflower_crop_size, f_soybean_crop_size, starts_with("f_types_crop"), f_othermaincrop_1, f_othermaincrop_2, f_company, f_maize_type, f_onion_type, f_sunflower_type, f_soybean_type, f_maize_harvest_num, f_onion_harvest_num, f_sunflower_harvest_num, f_soybean_harvest_num, cal_farm_costs_general, cal_focus_other_costs, `_submission__id`, `_pi_geolocation_latitude`, `_pi_geolocation_longitude`, hh_farmer_gender, f_nonfarm_income_total, f_other_crop_income) 
+
+```
+
+# Merging
+
+```{r}
+
+safe_left_join <- function(x, y, by) {
+  left_join(
+    x %>% distinct(across(all_of(by)), .keep_all = TRUE),
+    y %>% distinct(across(all_of(by)), .keep_all = TRUE),
+    by = by
+  )
+}
+
+# Now perform your joins neatly and uniformly:
+final <- final %>%
+  safe_left_join(inputs_summary, by = "_submission__id") %>%
+  safe_left_join(labour_summary, by = "_submission__id") %>%
+  safe_left_join(maize_quant_price, by = "_submission__id") %>%
+  safe_left_join(onion_quant_price, by = "_submission__id") %>%
+  safe_left_join(sunflower_quant_price, by = "_submission__id") %>%
+  safe_left_join(soybean_quant_price, by = "_submission__id") %>%
+  safe_left_join(company_loop_maize_summary, by = "_submission__id") %>%
+  safe_left_join(company_loop_onion_summary, by = "_submission__id")%>%
+  safe_left_join(company_loop_sunflower_summary, by = "_submission__id")%>%
+  safe_left_join(company_loop_soybean_summary, by = "_submission__id")%>%
+  safe_left_join(company_loop_organization_summary, by = "_submission__id")
+
+
+```
+
+# Final calculations
+
+## 1. Per kg
+
+```{r}
+final <- final %>%
+  mutate(
+    # cal_farm_costs_general_kg = cal_farm_costs_general/cal_focus_quant_prod_kg, 
+    # cal_inputs_costs_kg = cal_inputs_costs/cal_focus_quant_prod_kg, 
+    # cal_focus_other_costs_kg = cal_focus_other_costs/cal_focus_quant_prod_kg, 
+    cal_focus_costs = cal_focus_labour_costs + cal_inputs_costs + cal_focus_other_costs, 
+    # cal_focus_costs_kg = cal_focus_costs/cal_focus_quant_prod_kg
+  )
+
+```
+
+## 2. Land size calculations
+
+### a. Conversion
+
+if no other
+
+```{r}
+data$f_unit_land_other
+final <- final %>%
+  mutate(
+    f_size = ifelse(f_size ==9999|f_size==9998,NA,f_size),
+    f_maize_crop_size =ifelse(f_maize_crop_size==9999|f_maize_crop_size==9998,NA,f_maize_crop_size),
+     f_onion_crop_size =ifelse(f_onion_crop_size==9999|f_onion_crop_size==9998,NA,f_onion_crop_size),
+     f_sunflower_crop_size =ifelse(f_sunflower_crop_size==9999|f_sunflower_crop_size==9998,NA,f_sunflower_crop_size),
+      f_soybean_crop_size =ifelse(f_soybean_crop_size==9999|f_soybean_crop_size==9998,NA,f_soybean_crop_size)
+  ) %>%
+  mutate(
+    cal_f_size_ha = 
+      ifelse(f_unit_land == "Hectares", f_size, 
+             ifelse(f_unit_land == "Acres", f_size * 0.404686, f_size * 0.0001)), 
+    cal_maize_crop_size_ha = 
+      ifelse(f_unit_land == "Hectares", f_maize_crop_size, 
+             ifelse(f_unit_land == "Acres", f_maize_crop_size * 0.404686, f_maize_crop_size * 0.0001)), 
+    cal_onion_crop_size_ha = 
+      ifelse(f_unit_land == "Hectares", f_onion_crop_size, 
+             ifelse(f_unit_land == "Acres", f_onion_crop_size * 0.404686, f_onion_crop_size * 0.0001)),
+    cal_sunflower_crop_size_ha = 
+      ifelse(f_unit_land == "Hectares", f_sunflower_crop_size, 
+             ifelse(f_unit_land == "Acres", f_sunflower_crop_size * 0.404686, f_sunflower_crop_size * 0.0001)),
+    cal_soybean_crop_size_ha = 
+      ifelse(f_unit_land == "Hectares", f_soybean_crop_size, 
+             ifelse(f_unit_land == "Acres", f_soybean_crop_size * 0.404686, f_soybean_crop_size * 0.0001)))
+
+final$cal_maize_crop_size_ha
+final$f_unit_land
+```
+
+### b. per ha
+
+```{r}
+final <- final %>%
+  mutate(cal_maize_productivity_kg_hectare = cal_maize_quant_prod_kg/cal_maize_crop_size_ha,
+         cal_onion_productivity_kg_hectare = cal_onion_quant_prod_kg/cal_onion_crop_size_ha,
+         cal_sunflower_productivity_kg_hectare = cal_sunflower_quant_prod_kg/cal_sunflower_crop_size_ha,
+         cal_soybean_productivity_kg_hectare = cal_soybean_quant_prod_kg/cal_soybean_crop_size_ha)
+```
+
+## 2. Last cal
+
+```{r}
+  final <- final %>%
+    mutate(cal_maize_price_kg = cal_maize_price/cal_maize_measurement_sold, 
+           cal_onion_price_kg = cal_onion_price/cal_onion_measurement_sold,
+           cal_sunflower_price_kg = cal_sunflower_price/cal_sunflower_measurement_sold,
+           cal_soybean_price_kg = cal_soybean_price/cal_soybean_measurement_sold, 
+           cal_maize_revenue = cal_maize_quant_sold_kg*cal_maize_price_kg,
+           cal_onion_revenue = cal_onion_quant_sold_kg*cal_onion_price_kg,
+           cal_sunflower_revenue = cal_sunflower_quant_sold_kg*cal_sunflower_price_kg,
+           cal_soybean_revenue = cal_soybean_quant_sold_kg*cal_soybean_price_kg)%>%
+  #   replace_na(list(
+  #   cal_maize_revenue = 0,
+  #   cal_onion_revenue = 0,
+  #   cal_sunflower_revenue = 0,
+  #   cal_soybean_revenue = 0
+  # ))%>%
+  mutate(cal_focus_revenue = rowSums(
+    select(., cal_maize_revenue, cal_onion_revenue, cal_sunflower_revenue, cal_soybean_revenue),
+    na.rm = TRUE
+  ))%>%
+ #          one = "x",
+         mutate(map = paste(`_pi_geolocation_latitude`, `_pi_geolocation_longitude`, sep = ","))
+```
+
+# Excluding problem observations
+
+```{r}
+# uuid_list <- c(20250327115455,20250327131551,20250328095149,
+#                20250327192737,20250327194355,20250327085413,
+#                20250327172605,20250327134015,20250331091122,
+#                20250328094223,20250328175859,20250328125627,
+#                20250328172050,20250330214831,20250328162132,
+#                20250328172419,20250328182404,20250328153730, 
+#                20250329142658,20250329122439,20250328171631,
+#                20250329081410,20250328092429,20250331035515,
+#                20250328080033
+#                )
+# 
+# final <- final %>% 
+#   filter(!uuid %in% uuid_list)
+```
+
+# Get the file
+
+```{r}
+
+write_xlsx(final, "Quality Check.xlsx")
+
+```
+
+```{r}
+#RUN ALL
+```
