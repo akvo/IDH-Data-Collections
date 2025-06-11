@@ -1,0 +1,2365 @@
+---
+title: "Data_clearning_Ethiopia_endline"
+output: html_document
+date: "2025-06-5"
+---
+
+```{r setup, include=FALSE}
+rm(list = ls(), envir = .GlobalEnv)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This script is developed to clean data from Farmfit cases in a standardized way.
+
+### Preparation
+
+Load the necessary packages.
+
+```{r, include = FALSE}
+library(here); library(readxl); library(openxlsx);
+library(plyr); library(dplyr); library(tidyr); library(tidylog); library(tidyselect)
+library(stringr); library(data.table); library(reshape2)
+library(zoo);library(splitstackshape) ;library(tidyverse); library(magrittr)
+```
+
+Fill in the basic case information.
+
+```{r}
+case = "Luna_and_Gada"
+year = "2025"
+sdm_crop = "Maize_onion_sunflower_soybean"
+country = "Ethiopia"
+```
+
+Make a new Github map with the project name where this R Markdown file is stored, together with the raw data and the survey form downloaded from Flow. Fill in the right file names in the code below so the variables data_filename and survey_filename refer to the correct file.
+
+```{r}
+data_filename <- "Data_IDH_Luna_and_GaDA_Ethiopia.xlsx"
+survey_filename <- "IDH Farmer Survey Builder for Luna and Gada (Ethiopia).xlsx"
+```
+
+Describe the files that will be created in the script here.
+
+```{r}
+pi_filename <- paste("pi_",year,"_",case,"_",sdm_crop,".xlsx", sep="")
+data_delivery <- paste(year,"_",case,"_anom_",sdm_crop,"_baseline",".xlsx", sep = "")
+```
+
+Import the data files that can be found in the map Analytics-Guild -\> IDH -\> Templates and input files for data delivery. Copy them in the project map.
+
+```{r}
+question_library <- read_excel("question library format v4.1.1.xlsx",
+                               sheet = "Full Survey", skip = 2) 
+vars_transformed <- read_excel("variables with transformation_2.xlsx") 
+household_demographics  <- read_excel("household_demographics_var_2.xlsx") 
+vars_dashboard <- read_excel("variable names input dashboard_2.xlsx") 
+
+```
+
+Define functions that will be needed later in the script.
+
+```{r}
+# DATA TYPE Set factors to integers
+factor_to_int <- function(x){
+  as.numeric(as.character(x))
+}
+# Find and replace outliers
+outlier_detection <- function(x){
+  ifelse(
+    x > (mean(x, na.rm=TRUE) + sd(x, na.rm=TRUE)*3) |
+      x < (mean(x, na.rm=TRUE) - sd(x, na.rm=TRUE)*3), 
+    9997,
+    x
+  )
+}
+
+options(scipen = 999)  
+# count values without NA
+count_n <- function(x){sum(!is.na(x))}
+```
+
+### Import data
+
+We read the data downloaded. The below is for a KOBO format. On Data we will perform cleaning. Data_raw will be added to the data delivery as the full raw data file without transformations. Only the personal information variables are removed.
+
+**Note**: specify the correct sheet name
+
+```{r, include = FALSE}
+# Data for transformation
+Data <- read_excel(data_filename, sheet = "Farmer Survey IDH Luna and G...")
+maize_revenue <- read_xlsx(data_filename, sheet = "maize_repeat_revenue")
+soybean_revenue <- read_xlsx(data_filename, sheet = "soybean_repeat_revenue")
+sunflower_revenue <- read_xlsx(data_filename, sheet = "sunflower_repeat_revenue")
+onion_revenue <- read_xlsx(data_filename, sheet = "onion_repeat_revenue")
+
+input_use_costs <- read_xlsx(data_filename, sheet = "input_use_costs_repeat")
+labour_use <- read_xlsx(data_filename, sheet = "labour_use_repeat")
+
+company_loop_maize <- read_xlsx(data_filename, sheet = "maize_company_loop")
+company_loop_soybean <- read_xlsx(data_filename, sheet = "company_loop_soybean")
+company_loop_sunflower <- read_xlsx(data_filename, sheet = "company_loop_sunflower")
+company_loop_onion <- read_xlsx(data_filename, sheet = "company_loop_onion")
+company_loop_org <- read_xlsx(data_filename, sheet = "company_loop_organization")
+
+# Raw data 
+Data_raw <- read_excel(data_filename, sheet = "Farmer Survey IDH Luna and G...")
+Data_raw <- Data_raw %>%
+  select(-starts_with("pi_"), -farmer_name, -farmer_phone_number)
+
+maize_revenue_raw <- read_xlsx(data_filename, sheet = "maize_repeat_revenue")
+soybean_revenue_raw <- read_xlsx(data_filename, sheet = "soybean_repeat_revenue")
+sunflower_revenue_raw <- read_xlsx(data_filename, sheet = "sunflower_repeat_revenue")
+onion_revenue_raw <- read_xlsx(data_filename, sheet = "onion_repeat_revenue")
+
+input_use_costs_raw <- read_xlsx(data_filename, sheet = "input_use_costs_repeat")
+labour_use_raw <- read_xlsx(data_filename, sheet = "labour_use_repeat")
+
+company_loop_maize_raw <- read_xlsx(data_filename, sheet = "maize_company_loop")
+company_loop_soybean_raw <- read_xlsx(data_filename, sheet = "company_loop_soybean")
+company_loop_sunflower_raw <- read_xlsx(data_filename, sheet = "company_loop_sunflower")
+company_loop_onion_raw <- read_xlsx(data_filename, sheet = "company_loop_onion")
+company_loop_org_raw <- read_xlsx(data_filename, sheet = "company_loop_organization")
+
+# Read file with survey structure
+survey_questions <- read_excel((survey_filename),sheet ="survey")
+questions_choices <- read_excel ((survey_filename), sheet ="choices")
+```
+
+Adjust the survey file to be ready for analysis. We now have a clear overview of the survey questions asked in this case. The below code is for Kobo format
+
+```{r, include = FALSE}
+# SURVEY QUESTION SHEET
+
+survey_questions %<>%
+  # Select relevant columns: type, name, label in English, and relevant
+  select(type, name, `label::English`, `label::Amharic`, disabled, relevant) %>%
+  # Trim any trailing spaces from character columns
+  mutate(across(where(is.character), str_trim)) %>%
+  # Rename "label: English" to a simpler "label"
+  rename(label = `label::English`) %>%
+  # Convert all data to lowercase for consistency
+  mutate(across(everything(), tolower)) %>%
+  # Filter out rows where the 'type' column is missing (empty rows)
+  filter(!is.na(type)) %>%
+  # Filter out rows where the 'label' column is missing (empty rows)
+  filter(!is.na(label)) %>%
+  # Filter out rows where the type is 'note', 'begin_group', or 'begin_repeat'
+  filter(!type %in% c("note", "begin_group", "begin group", "begin_repeat")) 
+#remove desabled questions
+survey_questions %<>%
+  mutate(disabled= ifelse(is.na(disabled), "false", disabled))%>%
+  filter(disabled != "true")
+
+# CHOICES QUESTION SHEET
+questions_choices %<>%
+  # Select relevant columns: list_name, name, label in English, and label in Portuguese
+  select(list_name, name, `label::English`, `label::Amharic`) %>%
+  # Trim any trailing spaces from character columns
+  mutate(across(where(is.character), str_trim)) %>%
+  # Rename "label: English" to "label" and "list_name" to "choices_name"
+  rename(label = `label::English`, choices_name = list_name) %>%
+  # Convert all data to lowercase for consistency
+  mutate(across(everything(), tolower)) %>%
+  # Filter out rows where the 'choices_name' column is missing (empty rows)
+  filter(!is.na(choices_name))
+```
+
+What are the numerical columns? How many participants?
+
+```{r}
+# Collect the different variables, numerical questions:
+numerical_columns <- survey_questions %>%
+  filter(type %in% c("integer", "decimal")) %>%
+  select("name") %>% pull()
+Data$uui
+## ---- Count initial number of participants
+nr_participants_raw <- length(unique(Data$`_uuid`))
+```
+
+# Section 1. Cleaning the data
+
+
+## 1. Standard data cleaning (dates, columns, lowercase, participation, duplicates)
+
+```{r, include = FALSE}
+Data <- Data %>%
+  # Set the date to date format
+  mutate(`_submission_time` = as.Date(`_submission_time`, format = "%d-%m-%Y")) %>%
+  # Remove irrelevant columns
+  select(-c(devicephonenum, deviceid, uuid,
+            `__version__`, `_validation_status`, `_notes`, `_status`, `_submitted_by`, `_tags`, 
+            )) %>%
+  select(-contains("/")) %>%
+  # All column names to lowercase
+  rename_all(tolower) %>%
+  # Remove farmers who didn’t participate
+  mutate(surv_consent = na.locf(surv_consent, na.rm = FALSE)) %>%
+  filter(surv_consent != "accepted to participate") %>%
+  # Lowercase text in all character columns
+  mutate(across(where(is.character), tolower))%>%
+  # Remove completely empty columns
+  select(where(~ !all(is.na(.))))
+
+```
+
+```{r}
+maize_revenue <- maize_revenue %>%
+  # Set the date to date format
+  mutate(`_submission__submission_time` = as.Date(`_submission__submission_time`, format = "%d-%m-%Y")) %>%
+  rename(`_submission_time` = `_submission__submission_time`)%>%
+  # Remove irrelevant columns
+  select(-c(`_submission__uuid`, `_submission___version__`, `_submission__validation_status`, `_submission__notes`, `_submission__status`, `_submission__submitted_by`, `_submission__tags`, `_parent_table_name`
+            )) %>%
+  select(-contains("/")) %>%
+  # All column names to lowercase
+  rename_all(tolower) %>%
+  # Lowercase text in all character columns
+  mutate(across(where(is.character), tolower))%>%
+  # Remove completely empty columns
+  select(where(~ !all(is.na(.))))
+
+#///////
+onion_revenue <- onion_revenue %>%
+  # Set the date to date format
+  mutate(`_submission__submission_time` = as.Date(`_submission__submission_time`, format = "%d-%m-%Y")) %>%
+  rename(`_submission_time` = `_submission__submission_time`)%>%
+  # Remove irrelevant columns
+  select(-c(`_submission__uuid`, `_submission___version__`, `_submission__validation_status`, `_submission__notes`, `_submission__status`, `_submission__submitted_by`, `_submission__tags`, `_parent_table_name`
+            )) %>%
+  select(-contains("/")) %>%
+  # All column names to lowercase
+  rename_all(tolower) %>%
+  # Lowercase text in all character columns
+  mutate(across(where(is.character), tolower))%>%
+  # Remove completely empty columns
+  select(where(~ !all(is.na(.))))
+
+
+#////
+sunflower_revenue <- sunflower_revenue %>%
+  # Set the date to date format
+  mutate(`_submission__submission_time` = as.Date(`_submission__submission_time`, format = "%d-%m-%Y")) %>%
+  rename(`_submission_time` = `_submission__submission_time`)%>%
+  # Remove irrelevant columns
+  select(-c(`_submission__uuid`, `_submission___version__`, `_submission__validation_status`, `_submission__notes`, `_submission__status`, `_submission__submitted_by`, `_submission__tags`, `_parent_table_name`
+            )) %>%
+  select(-contains("/")) %>%
+  # All column names to lowercase
+  rename_all(tolower) %>%
+  # Lowercase text in all character columns
+  mutate(across(where(is.character), tolower))%>%
+  # Remove completely empty columns
+  select(where(~ !all(is.na(.))))
+
+#/////
+soybean_revenue <- soybean_revenue %>%
+  # Set the date to date format
+  mutate(`_submission__submission_time` = as.Date(`_submission__submission_time`, format = "%d-%m-%Y")) %>%
+  rename(`_submission_time` = `_submission__submission_time`)%>%
+  # Remove irrelevant columns
+  select(-c(`_submission__uuid`, `_submission___version__`, `_submission__validation_status`, `_submission__notes`, `_submission__status`, `_submission__submitted_by`, `_submission__tags`, `_parent_table_name`
+            )) %>%
+  select(-contains("/")) %>%
+  # All column names to lowercase
+  rename_all(tolower) %>%
+  # Lowercase text in all character columns
+  mutate(across(where(is.character), tolower))
+  # Remove completely empty columns
+#  select(where(~ !all(is.na(.))))
+```
+
+
+```{r}
+company_loop_maize <- company_loop_maize %>%
+  # Set the date to date format
+  mutate(`_submission__submission_time` = as.Date(`_submission__submission_time`, format = "%d-%m-%Y")) %>%
+  rename(`_submission_time` = `_submission__submission_time`)%>%
+  # Remove irrelevant columns
+  select(-c(`_submission__uuid`, `_submission___version__`, `_submission__validation_status`, `_submission__notes`, `_submission__status`, `_submission__submitted_by`, `_submission__tags`, `_parent_table_name`
+            )) %>%
+  select(-contains("/")) %>%
+  # All column names to lowercase
+  rename_all(tolower) %>%
+  # Lowercase text in all character columns
+  mutate(across(where(is.character), tolower))%>%
+  # Remove completely empty columns
+  select(where(~ !all(is.na(.))))
+
+#
+company_loop_onion <- company_loop_onion %>%
+  # Set the date to date format
+  mutate(`_submission__submission_time` = as.Date(`_submission__submission_time`, format = "%d-%m-%Y")) %>%
+  rename(`_submission_time` = `_submission__submission_time`)%>%
+  # Remove irrelevant columns
+  select(-c(`_submission__uuid`, `_submission___version__`, `_submission__validation_status`, `_submission__notes`, `_submission__status`, `_submission__submitted_by`, `_submission__tags`, `_parent_table_name`
+            )) %>%
+  select(-contains("/")) %>%
+  # All column names to lowercase
+  rename_all(tolower) %>%
+  # Lowercase text in all character columns
+  mutate(across(where(is.character), tolower))%>%
+  # Remove completely empty columns
+  select(where(~ !all(is.na(.))))
+
+#
+company_loop_sunflower <- company_loop_sunflower %>%
+  # Set the date to date format
+  mutate(`_submission__submission_time` = as.Date(`_submission__submission_time`, format = "%d-%m-%Y")) %>%
+  rename(`_submission_time` = `_submission__submission_time`)%>%
+  # Remove irrelevant columns
+  select(-c(`_submission__uuid`, `_submission___version__`, `_submission__validation_status`, `_submission__notes`, `_submission__status`, `_submission__submitted_by`, `_submission__tags`, `_parent_table_name`
+            )) %>%
+  select(-contains("/")) %>%
+  # All column names to lowercase
+  rename_all(tolower) %>%
+  # Lowercase text in all character columns
+  mutate(across(where(is.character), tolower))%>%
+  # Remove completely empty columns
+  select(where(~ !all(is.na(.))))
+
+#
+company_loop_soybean <- company_loop_soybean %>%
+  # Set the date to date format
+  mutate(`_submission__submission_time` = as.Date(`_submission__submission_time`, format = "%d-%m-%Y")) %>%
+  rename(`_submission_time` = `_submission__submission_time`)%>%
+  # Remove irrelevant columns
+  select(-c(`_submission__uuid`, `_submission___version__`, `_submission__validation_status`, `_submission__notes`, `_submission__status`, `_submission__submitted_by`, `_submission__tags`, `_parent_table_name`
+            )) %>%
+  select(-contains("/")) %>%
+  # All column names to lowercase
+  rename_all(tolower) %>%
+  # Lowercase text in all character columns
+  mutate(across(where(is.character), tolower))%>%
+  # Remove completely empty columns
+  select(where(~ !all(is.na(.))))
+
+company_loop_org <- company_loop_org %>%
+  # Set the date to date format
+  mutate(`_submission__submission_time` = as.Date(`_submission__submission_time`, format = "%d-%m-%Y")) %>%
+  rename(`_submission_time` = `_submission__submission_time`)%>%
+  # Remove irrelevant columns
+  select(-c(`_submission__uuid`, `_submission___version__`, `_submission__validation_status`, `_submission__notes`, `_submission__status`, `_submission__submitted_by`, `_submission__tags`, `_parent_table_name`
+            )) %>%
+  select(-contains("/")) %>%
+  # All column names to lowercase
+  rename_all(tolower) %>%
+  # Lowercase text in all character columns
+  mutate(across(where(is.character), tolower))%>%
+  # Remove completely empty columns
+  select(where(~ !all(is.na(.))))
+
+
+labour_use <- labour_use %>%
+  # Set the date to date format
+  mutate(`_submission__submission_time` = as.Date(`_submission__submission_time`, format = "%d-%m-%Y")) %>%
+  rename(`_submission_time` = `_submission__submission_time`)%>%
+  # Remove irrelevant columns
+  select(-c(`_submission__uuid`, `_submission___version__`, `_submission__validation_status`, `_submission__notes`, `_submission__status`, `_submission__submitted_by`, `_submission__tags`, `_parent_table_name`
+            )) %>%
+  select(-contains("/")) %>%
+  # All column names to lowercase
+  rename_all(tolower) %>%
+  # Lowercase text in all character columns
+  mutate(across(where(is.character), tolower))%>%
+  # Remove completely empty columns
+  select(where(~ !all(is.na(.))))
+
+
+input_use_costs <- input_use_costs %>%
+  # Set the date to date format
+  mutate(`_submission__submission_time` = as.Date(`_submission__submission_time`, format = "%d-%m-%Y")) %>%
+  rename(`_submission_time` = `_submission__submission_time`)%>%
+  # Remove irrelevant columns
+  select(-c(`_submission__uuid`, `_submission___version__`, `_submission__validation_status`, `_submission__notes`, `_submission__status`, `_submission__submitted_by`, `_submission__tags`, `_parent_table_name`
+            )) %>%
+  select(-contains("/")) %>%
+  # All column names to lowercase
+  rename_all(tolower) %>%
+  # Lowercase text in all character columns
+  mutate(across(where(is.character), tolower))%>%
+  # Remove completely empty columns
+  select(where(~ !all(is.na(.))))
+```
+
+## 1. Rename variables where necessary
+
+```{r}
+#Collect the different variables, numerical questions:
+ Data <- Data %>%
+   rename(uuid = `_uuid`)
+```
+
+## 3. Other variables
+
+Categorise variable if needed
+
+```{r}
+#subset
+data_other <-variables_other <- Data %>% 
+  select(ends_with("_other"), -f_focus_costs_other)
+
+```
+
+Identify the "other" variables, and combine the values with their parent. Then the "other" variables are removed.
+
+```{r, include = FALSE}
+variables_other <- Data %>% 
+  select(ends_with("_other"), ends_with("_other2"), -f_focus_costs_other) %>% 
+  names() 
+
+for(other in variables_other){
+  
+  if(any(names(Data) %in% gsub("_other$|_other2$", "", other))){
+    
+    # Fuzzy match? - many spelling mistakes in "other" questions
+    
+    # Combine "other" variables with their parents
+    Data <- Data %>%
+      unite(!!gsub("_other$|_other2$", "", other), 
+            c(gsub("_other$|_other2$", "", other), all_of(other)), 
+            sep="|", remove=FALSE, na.rm=TRUE) %>%
+      select(-other)
+  }
+}
+```
+
+
+
+## 4. Adjust farm sizes, household size, and convert birth year to age
+
+Adjust the **farm sizes** to acres.
+
+```{r}
+# First check what are the unit measurements reported in this case.
+table(Data$f_unit_land)
+#table(Data$f_unit_land_other2)
+```
+
+```{r}
+# THIS IS EXAMPLE CODE! ADAPT THE CODE TO THE NECESSARY ADJUSTMENTS IN THE CASE, OR DELETE CODE IF NO CLEANING IS REQUIRED
+# Data <- Data %>%
+#   mutate(f_focus_crop_size = ifelse(f_size < f_focus_crop_size, NA, f_focus_crop_size))
+#                                     
+```
+
+The code below creates a variable for farm sizes in both acres and hectares. When another option is given as unit of measurement (other than acres or hectares), the code needs to be manually adjusted!
+
+```{r, include = FALSE}
+
+#Mutate the different units to acres. We need a farm size in acres for the total farm size, and the size dedicated to focus crop.
+Data <- Data %>%
+#Convert land size to acres if in hectares
+ mutate(f_size_acre = ifelse(f_unit_land == "hectares", f_size * 2.471, f_size),
+        f_maize_size_acre = ifelse(f_unit_land == "hectares", f_maize_crop_size * 2.471, f_maize_crop_size),
+        f_onion_size_acre = ifelse(f_unit_land == "hectares", f_onion_crop_size * 2.471, f_onion_crop_size),
+        f_sunflower_size_acre = ifelse(f_unit_land == "hectares", f_sunflower_crop_size * 2.471, f_sunflower_crop_size),
+        f_soybean_size_acre = ifelse(f_unit_land == "hectares", f_soybean_crop_size * 2.471, f_soybean_crop_size)) %>%
+ # Fill missing values in focus crop size
+ mutate(f_maize_size_acre = na.locf(f_maize_size_acre, na.rm = FALSE),
+        f_onion_size_acre = na.locf(f_onion_size_acre, na.rm = FALSE),
+        f_sunflower_size_acre = na.locf(f_sunflower_size_acre, na.rm = FALSE),
+        f_soybean_size_acre = na.locf(f_soybean_size_acre, na.rm = FALSE)) %>%
+#Mutate the different units to hectares. We need a farm size in hectares for the total farm size, and the size dedicated to focus crop.
+ mutate(f_size_hectare = ifelse(f_unit_land == "hectares", f_size, f_size_acre / 2.471),
+        f_maize_size_hectare = ifelse(f_unit_land == "hectares", f_maize_crop_size, f_maize_crop_size / 2.471),
+        f_onion_size_hectare = ifelse(f_unit_land == "hectares", f_onion_crop_size, f_onion_crop_size / 2.471),
+        f_sunflower_size_hectare = ifelse(f_unit_land == "hectares", f_sunflower_crop_size, f_sunflower_crop_size / 2.471),
+        f_soybean_size_hectare = ifelse(f_unit_land == "hectares", f_soybean_crop_size, f_soybean_crop_size / 2.471))
+```
+
+Mutate the birth year variables to **age.** Adjust the year to the current time. Not all birthyear variables are included in each case. Check the survey_questions table to see whether they are included in this case or not. also check the values to ensure hh_farmer_birthyear is in terms of age or year. then make the adjustment to calculate farmer age
+
+```{r}
+ Data <- Data %>%
+  # Adjust adults figure in household
+#  mutate(hh_adults_num = hh_size - hh_children_num) #adults already exist, let's calculate for children
+mutate(cal_hh_children_num = hh_size - hh_adults_num)
+
+#convert birth year to age
+# Data <- Data %>%
+#   mutate(cal_hh_farmer_age = 2024 - hh_farmer_birthyear,
+#            cal_hh_head_age = 2024-hh_head_birthyear) 
+
+#if hh_farmer_birthyear already in age, rename using below code
+ Data <- Data %>%
+   # rename birth year to age
+   rename(cal_hh_head_age= "hh_head_birthyear")
+```
+
+## 5. Correct prices, quantities
+
+```{r}
+ maize_revenue <- maize_revenue %>%
+   mutate(f_maize_price = ifelse(is.na(f_maize_measurement_sold), 0, f_maize_price))
+
+ onion_revenue <- onion_revenue %>%
+   mutate(f_onion_price = ifelse(is.na(f_onion_measurement_sold), 0, f_onion_price))
+ 
+  sunflower_revenue <- sunflower_revenue %>%
+   mutate(f_sunflower_price = ifelse(is.na(f_sunflower_measurement_sold), 0, f_sunflower_price))
+  
+   soybean_revenue <- soybean_revenue %>%
+   mutate(f_soybean_price = ifelse(is.na(f_soybean_measurement_sold), 0, f_soybean_price))
+
+   #No seeds for onion
+   onion_revenue <- onion_revenue %>%
+  mutate(f_onion_use_seeds_yn = ifelse(f_onion_use_seeds_quant == 0,"no", f_onion_use_seeds_yn)) %>%
+     select(-c(f_onion_use_seeds_quant,	f_onion_plant_quant,	f_onion_use_seeds_selling_quant,	f_onion_price_selling_seeds))
+```
+
+## 
+
+## 6. Specific adjustments for quantities and measurement units
+
+This is case specific.
+
+```{r}
+maize_revenue <- maize_revenue %>%
+  mutate(f_maize_measurement_prod = ifelse(f_maize_measurement_prod == "other", "kg", f_maize_measurement_prod),
+         f_maize_measurement_sold = ifelse(f_maize_measurement_sold == "other", "kg", f_maize_measurement_sold),
+         f_maize_measurement_lost = ifelse(f_maize_measurement_lost == "other", "kg", f_maize_measurement_lost)) %>%
+  select(-c(f_maize_measurement_prod_other, f_maize_measurement_sold_other, f_maize_measurement_lost_other))
+
+
+```
+
+Measurement unit
+
+```{r}
+# THIS IS EXAMPLE CODE! ADAPT THE CODE TO THE NECESSARY ADJUSTMENTS IN THE CASE, OR DELETE CODE IF NO CLEANING IS REQUIRED
+# Data <- Data %>%
+#   mutate(
+#     #prod
+#     f_focus_measurement_prod = ifelse(f_focus_quant_prod != 0 & f_focus_measurement_prod == "", "kgs", f_focus_measurement_prod))
+#     #sold
+#     #   harmonise measurement unit 
+#       f_focus_measurement_sold = ifelse(f_focus_measurement_sold == "100 kilogram bags", "100 kgs bags", f_focus_measurement_sold)
+
+```
+
+## 7. Handle outliers and missing values
+
+**Data**
+
+Exclude variables such as quantities, price and farm size to be checked manually
+
+```{r, include = FALSE}
+excluded_columns <- c("f_size", "f_maize_crop_size", "f_onion_crop_size", "f_sunflower_crop_size", "f_soybean_crop_size", "f_maize_quant_prod", "f_onion_quant_prod", "f_sunflower_quant_prod", "f_soybean_quant_prod", "f_maize_quant_sold", "f_onion_quant_sold", "f_sunflower_quant_sold", "f_soybean_quant_sold", "f_maize_quant_lost", "f_sunflower_quant_lost", "f_soybean_quant_lost", "f_onion_quant_lost") # Replace with actual variable names
+# 
+# # Identify numerical columns for outlier handling, excluding those ending with "_#"
+# numerical_columns <- names(Data %>% select_if(is.numeric)) %>%
+#   .[!grepl("_\\d+$", .)]  %>%  # Exclude columns ending with "_#"
+#   .[!(. %in% excluded_columns)] %>%  # Exclude specific columns
+#   .[sapply(Data[.], function(x) length(unique(x)) > 2)]  # Exclude binary columns
+
+get_clean_numeric_columns <- function(data, excluded_columns = character()) {
+  names(data %>% select_if(is.numeric)) %>%
+    .[!grepl("_\\d+$", .)] %>%  # Exclut les colonnes qui se terminent par "_#"
+    .[!(. %in% excluded_columns[excluded_columns %in% names(data)])] %>%  # Exclut celles présentes dans la base
+    .[sapply(data[.], function(x) length(unique(x)) > 2)]  # Exclut les colonnes binaires
+}
+
+numerical_columns_data <- get_clean_numeric_columns(Data, excluded_columns)
+numerical_columns_maize_rev <- get_clean_numeric_columns(maize_revenue, excluded_columns)
+numerical_columns_onion_rev <- get_clean_numeric_columns(onion_revenue, excluded_columns)
+numerical_columns_sunflower_rev <- get_clean_numeric_columns(sunflower_revenue, excluded_columns)
+numerical_columns_soybean_rev <- get_clean_numeric_columns(soybean_revenue, excluded_columns)
+numerical_columns_cloop_maize <- get_clean_numeric_columns(company_loop_maize, excluded_columns)
+numerical_columns_cloop_onion <- get_clean_numeric_columns(company_loop_onion, excluded_columns)
+numerical_columns_cloop_sunflower <- get_clean_numeric_columns(company_loop_sunflower, excluded_columns)
+numerical_columns_cloop_soybean <- get_clean_numeric_columns(company_loop_soybean, excluded_columns)
+numerical_columns_cloop_org <- get_clean_numeric_columns(company_loop_org, excluded_columns)
+numerical_columns_labour <- get_clean_numeric_columns(labour_use, excluded_columns)
+numerical_columns_input <- get_clean_numeric_columns(input_use_costs, excluded_columns)
+```
+
+```{r, include = FALSE}
+
+# OUTLIERS:
+#Identify numerical columns again because of change in names above
+numerical_columns <- survey_questions %>%
+filter(type %in% c("integer", "decimal")) %>%
+select("name") %>% pull()
+```
+
+```{r, include = FALSE}
+# Apply the outlier detection function to numerical columns
+Data <- Data %>%
+    mutate_at(vars(numerical_columns_data), funs(outlier_detection))
+
+maize_revenue <- maize_revenue %>%
+    mutate_at(vars(numerical_columns_maize_rev), funs(outlier_detection))
+onion_revenue <- onion_revenue %>%
+    mutate_at(vars(numerical_columns_onion_rev), funs(outlier_detection))
+sunflower_revenue <- sunflower_revenue %>%
+    mutate_at(vars(numerical_columns_sunflower_rev), funs(outlier_detection))
+soybean_revenue <- soybean_revenue %>%
+    mutate_at(vars(numerical_columns_soybean_rev), funs(outlier_detection))
+company_loop_maize <- company_loop_maize %>%
+    mutate_at(vars(numerical_columns_cloop_maize), funs(outlier_detection))
+company_loop_onion <- company_loop_onion %>%
+    mutate_at(vars(numerical_columns_cloop_onion), funs(outlier_detection))
+company_loop_org <- company_loop_org %>%
+    mutate_at(vars(numerical_columns_cloop_org), funs(outlier_detection))
+company_loop_soybean <- company_loop_soybean %>%
+    mutate_at(vars(numerical_columns_cloop_soybean), funs(outlier_detection))
+company_loop_sunflower <- company_loop_sunflower %>%
+    mutate_at(vars(numerical_columns_cloop_sunflower), funs(outlier_detection))
+labour_use <- labour_use %>%
+    mutate_at(vars(numerical_columns_labour), funs(outlier_detection))
+input_use_costs <- input_use_costs %>%
+    mutate_at(vars(numerical_columns_input), funs(outlier_detection))
+```
+
+Put values that are 9999/"i don't know" or 9998/"i prefer not to say/9997 to NA.
+
+```{r, include=FALSE}
+# Data <- Data %>%
+#   # Replace specific values (9999, 9998, 9997) with NA for numeric columns
+#   mutate_if(is.numeric, list(~na_if(., 9999))) %>%
+#   mutate_if(is.numeric, list(~na_if(., 9998))) %>%
+#   mutate_if(is.numeric, list(~na_if(., 9997))) %>%
+# 
+#   # Replace "I don't know" or "I prefer not to say" with NA for character columns
+#   mutate_if(is.character, list(~na_if(., "i don't know"))) %>%
+#   mutate_if(is.character, list(~na_if(., "i prefer not to say")))
+
+clean_common_na_values <- function(data) {
+  data %>%
+    mutate_if(is.numeric, ~na_if(., 9999)) %>%
+    mutate_if(is.numeric, ~na_if(., 9998)) %>%
+    mutate_if(is.numeric, ~na_if(., 9997)) %>%
+    mutate_if(is.character, ~na_if(tolower(.), "i don't know")) %>%
+    mutate_if(is.character, ~na_if(tolower(.), "i prefer not to say"))
+}
+```
+
+```{r}
+Data <- clean_common_na_values(Data)
+maize_revenue <- clean_common_na_values(maize_revenue)
+onion_revenue <- clean_common_na_values(onion_revenue)
+sunflower_revenue <- clean_common_na_values(sunflower_revenue)
+soybean_revenue <- clean_common_na_values(soybean_revenue)
+company_loop_maize <- clean_common_na_values(company_loop_maize)
+company_loop_onion <- clean_common_na_values(company_loop_onion)
+labour_use <- clean_common_na_values(labour_use)
+input_use_costs <- clean_common_na_values(input_use_costs)
+company_loop_org <- clean_common_na_values(company_loop_org)
+company_loop_soybean <- clean_common_na_values(company_loop_soybean)
+company_loop_sunflower <- clean_common_na_values(company_loop_sunflower)
+```
+
+
+
+## 8. Some statistics
+
+```{r}
+# Number of participants who gave informed consent 
+nr_participants_ic <- length(unique(Data$uuid))
+
+# NUMBER OF SEASONS
+number_of_seasons <- max(Data$f_harvest_num, na.rm=TRUE)
+```
+
+# Section 2. Actual income calculation
+
+## 1) Transform unit measurements
+
+Each unit measurement variables needs to be aligned. let's handle the transformation of unit measurements for production, sales, consumption and losses. We transform every variable to kg.
+
+First check what are the unit measurement reported in this case. Use the code below, or check the google looker dashboard.
+
+```{r}
+table(maize_revenue$f_maize_measurement_prod)
+table(maize_revenue$f_maize_measurement_sold)
+table(maize_revenue$f_maize_measurement_lost)
+```
+
+To do so, we extract the numerical values from the measurement units for quantity produced, sold, consumed and lost. Always check by hand whether this is going well. We extract the numbers from the measurement units to calculate total quantities. If there are other measurement units, not related to kg, put a value for those in the variable: cal_focus_measurement_prod
+
+**Measurement unit production**
+
+```{r, include = FALSE}
+maize_revenue <- maize_revenue %>%
+##Measurement unit for production of maize
+  mutate(cal_maize_measurement_prod := ifelse(grepl("[[:digit:]]", f_maize_measurement_prod), 
+      extract_numeric(f_maize_measurement_prod), 
+      ifelse(f_maize_measurement_prod %in%c("kg","kgs", "Kg"), 1, 
+             ifelse(f_maize_measurement_prod %in%c("quintal"), 100, 0))))
+
+onion_revenue <- onion_revenue %>%
+##Measurement unit for production of onion
+  mutate(cal_onion_measurement_prod := ifelse(grepl("[[:digit:]]", f_onion_measurement_prod), 
+      extract_numeric(f_onion_measurement_prod), 
+      ifelse(f_onion_measurement_prod %in%c("kg","kgs", "Kg"), 1, 
+             ifelse(f_onion_measurement_prod %in%c("quintal"), 100, 0))))
+
+sunflower_revenue <- sunflower_revenue %>%
+##Measurement unit for production of sunflower
+  mutate(cal_sunflower_measurement_prod := ifelse(grepl("[[:digit:]]", f_sunflower_measurement_prod), 
+      extract_numeric(f_sunflower_measurement_prod), 
+      ifelse(f_sunflower_measurement_prod %in%c("kg","kgs", "Kg"), 1, 
+             ifelse(f_sunflower_measurement_prod %in%c("quintal"), 100, 0))))
+
+soybean_revenue <- soybean_revenue %>%
+##Measurement unit for production of soybean
+  mutate(cal_soybean_measurement_prod := ifelse(grepl("[[:digit:]]", f_soybean_measurement_prod), 
+      extract_numeric(f_soybean_measurement_prod), 
+      ifelse(f_soybean_measurement_prod %in%c("kg","kgs", "Kg"), 1, 
+             ifelse(f_soybean_measurement_prod %in%c("quintal"), 100, 0))))
+```
+
+**Measurement unit sales**
+
+```{r, include = FALSE}
+maize_revenue <- maize_revenue %>%
+##Measurement unit for sales of maize
+  mutate(cal_maize_measurement_sold := ifelse(grepl("[[:digit:]]", f_maize_measurement_sold), 
+      extract_numeric(f_maize_measurement_sold), 
+      ifelse(f_maize_measurement_sold %in%c("kg","kgs", "Kg"), 1, 
+             ifelse(f_maize_measurement_sold %in%c("quintal"), 100, 0))))
+
+onion_revenue <- onion_revenue %>%
+##Measurement unit for sales of onion
+  mutate(cal_onion_measurement_sold := ifelse(grepl("[[:digit:]]", f_onion_measurement_sold), 
+      extract_numeric(f_onion_measurement_sold), 
+      ifelse(f_onion_measurement_sold %in%c("kg","kgs", "Kg"), 1, 
+             ifelse(f_onion_measurement_sold %in%c("quintal"), 100, 0))))
+
+sunflower_revenue <- sunflower_revenue %>%
+##Measurement unit for sales of sunflower
+  mutate(cal_sunflower_measurement_sold := ifelse(grepl("[[:digit:]]", f_sunflower_measurement_sold), 
+      extract_numeric(f_sunflower_measurement_sold), 
+      ifelse(f_sunflower_measurement_sold %in%c("kg","kgs", "Kg"), 1, 
+             ifelse(f_sunflower_measurement_sold %in%c("quintal"), 100, 0))))
+
+soybean_revenue <- soybean_revenue %>%
+##Measurement unit for sales of soybean
+  mutate(cal_soybean_measurement_sold := ifelse(grepl("[[:digit:]]", f_soybean_measurement_sold), 
+      extract_numeric(f_soybean_measurement_sold), 
+      ifelse(f_soybean_measurement_sold %in%c("kg","kgs", "Kg"), 1, 
+             ifelse(f_soybean_measurement_sold %in%c("quintal"), 100, 0))))
+
+```
+
+**Measurement unit focus crop lost**
+
+```{r, include = FALSE}
+maize_revenue <- maize_revenue %>%
+##Measurement unit for sales of maize
+  mutate(cal_maize_measurement_lost := ifelse(grepl("[[:digit:]]", f_maize_measurement_lost), 
+      extract_numeric(f_maize_measurement_lost), 
+      ifelse(f_maize_measurement_lost %in%c("kg","kgs", "Kg"), 1, 
+             ifelse(f_maize_measurement_lost %in%c("quintal"), 100, 0))))
+
+onion_revenue <- onion_revenue %>%
+##Measurement unit for sales of onion
+  mutate(cal_onion_measurement_lost := ifelse(grepl("[[:digit:]]", f_onion_measurement_lost), 
+      extract_numeric(f_onion_measurement_lost), 
+      ifelse(f_onion_measurement_lost %in%c("kg","kgs", "Kg"), 1, 
+             ifelse(f_onion_measurement_lost %in%c("quintal"), 100, 0))))
+
+sunflower_revenue <- sunflower_revenue %>%
+##Measurement unit for sales of sunflower
+  mutate(cal_sunflower_measurement_lost := ifelse(grepl("[[:digit:]]", f_sunflower_measurement_lost), 
+      extract_numeric(f_sunflower_measurement_lost), 
+      ifelse(f_sunflower_measurement_lost %in%c("kg","kgs", "Kg"), 1, 
+             ifelse(f_sunflower_measurement_lost %in%c("quintal"), 100, 0))))
+
+soybean_revenue <- soybean_revenue %>%
+##Measurement unit for sales of soybean
+  mutate(cal_soybean_measurement_lost := ifelse(grepl("[[:digit:]]", f_soybean_measurement_lost), 
+      extract_numeric(f_soybean_measurement_lost), 
+      ifelse(f_soybean_measurement_lost %in%c("kg","kgs", "Kg"), 1, 
+             ifelse(f_soybean_measurement_lost %in%c("quintal"), 100, 0))))
+
+```
+
+
+**Measurement unit seeds**
+
+```{r, include = FALSE}
+maize_revenue <- maize_revenue %>%
+##Measurement unit for sales of maize
+  mutate(cal_maize_measurement_seeds := ifelse(grepl("[[:digit:]]", f_maize_measurement_seeds), 
+      extract_numeric(f_maize_measurement_seeds), 
+      ifelse(f_maize_measurement_seeds %in%c("kg","kgs", "Kg"), 1, 
+             ifelse(f_maize_measurement_seeds %in%c("quintal"), 100, 0))))
+
+# onion_revenue <- onion_revenue %>%
+# ##Measurement unit for sales of onion
+#   mutate(cal_onion_measurement_seeds := ifelse(grepl("[[:digit:]]", f_onion_measurement_seeds), 
+#       extract_numeric(f_onion_measurement_seeds), 
+#       ifelse(f_onion_measurement_seeds %in%c("kg","kgs", "Kg"), 1, 
+#              ifelse(f_onion_measurement_seeds %in%c("quintal"), 100, 0))))
+
+sunflower_revenue <- sunflower_revenue %>%
+##Measurement unit for sales of sunflower
+  mutate(cal_sunflower_measurement_seeds := ifelse(grepl("[[:digit:]]", f_sunflower_measurement_seeds), 
+      extract_numeric(f_sunflower_measurement_seeds), 
+      ifelse(f_sunflower_measurement_seeds %in%c("kg","kgs", "Kg"), 1, 
+             ifelse(f_sunflower_measurement_seeds %in%c("quintal"), 100, 0))))
+
+soybean_revenue <- soybean_revenue %>%
+##Measurement unit for sales of soybean
+  mutate(cal_soybean_measurement_seeds := ifelse(grepl("[[:digit:]]", f_soybean_measurement_seeds), 
+      extract_numeric(f_soybean_measurement_seeds), 
+      ifelse(f_soybean_measurement_seeds %in%c("kg","kgs", "Kg"), 1, 
+             ifelse(f_soybean_measurement_seeds %in%c("quintal"), 100, 0))))
+
+```
+
+
+
+
+## 2) Quantities produced, sold, lost and own consumption
+
+In this section the quantities produced, sold, lost are cleaned. Now that the unit measurements are transformed, the quantities produced, sold, lost and own consumption can be calculated in kgs.
+```{r}
+#Median prices
+median_maize_price_kg <- maize_revenue %>%
+  filter(f_maize_measurement_sold == "kg") %>%
+  summarise(median_maize_price = median(f_maize_price, na.rm = TRUE))
+median_maize_price_quintal <- maize_revenue %>%
+  filter(f_maize_measurement_sold == "quintal") %>%
+  summarise(median_maize_price = median(f_maize_price, na.rm = TRUE))
+
+median_onion_price_kg <- onion_revenue %>%
+  filter(f_onion_measurement_sold == "kg") %>%
+  summarise(median_onion_price = median(f_onion_price, na.rm = TRUE))
+median_onion_price_quintal <- onion_revenue %>%
+  filter(f_onion_measurement_sold == "quintal") %>%
+  summarise(median_onion_price = median(f_onion_price, na.rm = TRUE))
+
+median_sunflower_price_kg <- sunflower_revenue %>%
+  filter(f_sunflower_measurement_sold == "kg") %>%
+  summarise(median_sunflower_price = median(f_sunflower_price, na.rm = TRUE))
+median_sunflower_price_quintal <- sunflower_revenue %>%
+  filter(f_sunflower_measurement_sold == "quintal") %>%
+  summarise(median_sunflower_price = median(f_sunflower_price, na.rm = TRUE))
+
+```
+
+```{r, include = FALSE}
+#####Maize
+maize_revenue <- maize_revenue %>%
+    # Convert relevant columns to numeric
+  mutate(across(c(f_maize_quant_prod, cal_maize_measurement_prod, f_maize_quant_sold, cal_maize_measurement_sold, f_maize_quant_lost, cal_maize_measurement_lost, f_maize_price), as.numeric)) %>%
+  ##Calculate the quantities focus crop
+  mutate(cal_maize_quant_prod_kg = f_maize_quant_prod * cal_maize_measurement_prod) %>%
+  mutate(cal_maize_quant_sold_kg = f_maize_quant_sold * cal_maize_measurement_sold) %>%
+  mutate(cal_maize_quant_lost_kg = f_maize_quant_lost * cal_maize_measurement_lost) %>%
+  mutate(cal_maize_quant_seeds_kg = f_maize_use_seeds_quant * cal_maize_measurement_seeds) %>%
+  mutate(cal_maize_quant_plant_kg = f_maize_plant_quant * cal_maize_measurement_seeds) %>%
+  mutate(cal_maize_quant_seeds_selling_kg = f_maize_use_seeds_selling_quant * cal_maize_measurement_seeds) %>%
+  mutate_at(vars(starts_with("cal_maize_quant")), ~replace_na(., 0))
+    
+  # also calculate the unit price , first fill nas that should not be
+maize_revenue <- maize_revenue %>%
+  mutate(f_maize_price = ifelse(is.na(f_maize_price) & !is.na(f_maize_quant_sold) & f_maize_measurement_sold == "kg", median_maize_price_kg$median_maize_price, f_maize_price),
+         ifelse(is.na(f_maize_price) & !is.na(f_maize_quant_sold) & f_maize_measurement_sold == "quintal", median_maize_price_quintal$median_maize_price, f_maize_price))%>%
+  
+  mutate(cal_maize_price_kg = ifelse(cal_maize_measurement_prod != 0, f_maize_price/cal_maize_measurement_sold, f_maize_price),
+    cal_maize_price_kg = ifelse(is.na(cal_maize_quant_sold_kg) | cal_maize_quant_sold_kg == 0, NA, cal_maize_price_kg))%>%
+  mutate(cal_maize_price_kg = replace_na(cal_maize_price_kg, 0)) %>%
+  #
+  mutate(cal_maize_price_selling_seeds_kg = ifelse(cal_maize_measurement_prod != 0, f_maize_price_selling_seeds/cal_maize_measurement_seeds, f_maize_price_selling_seeds),
+    cal_maize_price_selling_seeds_kg = ifelse(is.na(cal_maize_quant_seeds_selling_kg) | cal_maize_quant_seeds_selling_kg == 0, NA, cal_maize_price_selling_seeds_kg))%>%
+  mutate(cal_maize_price_selling_seeds_kg = replace_na(cal_maize_price_selling_seeds_kg, 0))
+
+
+#####Onion
+onion_revenue <- onion_revenue %>%
+    # Convert relevant columns to numeric
+  mutate(across(c(f_onion_quant_prod, cal_onion_measurement_prod, f_onion_quant_sold, cal_onion_measurement_sold, f_onion_quant_lost, cal_onion_measurement_lost, f_onion_price), as.numeric)) %>%
+  ##Calculate the quantities focus crop
+  mutate(cal_onion_quant_prod_kg = f_onion_quant_prod * cal_onion_measurement_prod) %>%
+  mutate(cal_onion_quant_sold_kg = f_onion_quant_sold * cal_onion_measurement_sold) %>%
+  mutate(cal_onion_quant_lost_kg = f_onion_quant_lost * cal_onion_measurement_lost) %>%
+  #   mutate(cal_onion_quant_seeds_kg = f_onion_use_seeds_quant * cal_onion_measurement_seeds) %>%
+  # mutate(cal_onion_quant_plant_kg = f_onion_plant_quant * cal_onion_measurement_seeds) %>%
+  # mutate(cal_onion_quant_seeds_selling_kg = f_onion_use_seeds_selling_quant * cal_onion_measurement_seeds) %>%
+  mutate_at(vars(starts_with("cal_onion_quant")), ~replace_na(., 0)) 
+    
+   # also calculate the unit price , first fill nas that should not be
+onion_revenue <- onion_revenue %>%
+  mutate(f_onion_price = ifelse(is.na(f_onion_price) & !is.na(f_onion_quant_sold) & f_onion_measurement_sold == "kg", median_onion_price_kg$median_onion_price, f_onion_price),
+         ifelse(is.na(f_onion_price) & !is.na(f_onion_quant_sold) & f_onion_measurement_sold == "quintal", median_onion_price_quintal$median_onion_price, f_onion_price))%>%
+
+  mutate(cal_onion_price_kg = ifelse(cal_onion_measurement_prod != 0, f_onion_price/cal_onion_measurement_sold, f_onion_price),
+    cal_onion_price_kg = ifelse(is.na(cal_onion_quant_sold_kg) | cal_onion_quant_sold_kg == 0, NA, cal_onion_price_kg))%>%
+  mutate(cal_onion_price_kg = replace_na(cal_onion_price_kg, 0)) 
+  #
+  # mutate(cal_onion_price_selling_seeds_kg = ifelse(cal_onion_measurement_prod != 0, f_onion_price_selling_seeds/cal_onion_measurement_seeds, f_onion_price_selling_seeds),
+  #   cal_onion_price_selling_seeds_kg = ifelse(is.na(cal_onion_quant_seeds_selling_kg) | cal_onion_quant_seeds_selling_kg == 0, NA, cal_onion_price_selling_seeds_kg))%>%
+  # mutate(cal_onion_price_selling_seeds_kg = replace_na(cal_onion_price_selling_seeds_kg, 0))
+
+
+#####sunflower
+sunflower_revenue <- sunflower_revenue %>%
+    # Convert relevant columns to numeric
+  mutate(across(c(f_sunflower_quant_prod, cal_sunflower_measurement_prod, f_sunflower_quant_sold, cal_sunflower_measurement_sold, f_sunflower_quant_lost, cal_sunflower_measurement_lost, f_sunflower_price), as.numeric)) %>%
+  ##Calculate the quantities focus crop
+  mutate(cal_sunflower_quant_prod_kg = f_sunflower_quant_prod * cal_sunflower_measurement_prod) %>%
+  mutate(cal_sunflower_quant_sold_kg = f_sunflower_quant_sold * cal_sunflower_measurement_sold) %>%
+  mutate(cal_sunflower_quant_lost_kg = f_sunflower_quant_lost * cal_sunflower_measurement_lost) %>%
+    mutate(cal_sunflower_quant_seeds_kg = f_sunflower_use_seeds_quant * cal_sunflower_measurement_seeds) %>%
+  mutate(cal_sunflower_quant_plant_kg = f_sunflower_plant_quant * cal_sunflower_measurement_seeds) %>%
+  mutate(cal_sunflower_quant_seeds_selling_kg = f_sunflower_use_seeds_selling_quant * cal_sunflower_measurement_seeds) %>%
+  mutate_at(vars(starts_with("cal_sunflower_quant")), ~replace_na(., 0)) 
+    
+ # also calculate the unit price , first fill nas that should not be
+sunflower_revenue <- sunflower_revenue %>%
+  mutate(f_sunflower_price = ifelse(is.na(f_sunflower_price) & !is.na(f_sunflower_quant_sold) & f_sunflower_measurement_sold == "kg", median_sunflower_price_kg$median_sunflower_price, f_sunflower_price),
+         ifelse(is.na(f_sunflower_price) & !is.na(f_sunflower_quant_sold) & f_sunflower_measurement_sold == "quintal", median_sunflower_price_quintal$median_sunflower_price, f_sunflower_price))%>%
+  
+  mutate(cal_sunflower_price_kg = ifelse(cal_sunflower_measurement_prod != 0, f_sunflower_price/cal_sunflower_measurement_sold, f_sunflower_price),
+    cal_sunflower_price_kg = ifelse(is.na(cal_sunflower_quant_sold_kg) | cal_sunflower_quant_sold_kg == 0, NA, cal_sunflower_price_kg))%>%
+  mutate(cal_sunflower_price_kg = replace_na(cal_sunflower_price_kg, 0)) %>%
+  #
+  mutate(cal_sunflower_price_selling_seeds_kg = ifelse(cal_sunflower_measurement_prod != 0, f_sunflower_price_selling_seeds/cal_sunflower_measurement_seeds, f_sunflower_price_selling_seeds),
+    cal_sunflower_price_selling_seeds_kg = ifelse(is.na(cal_sunflower_quant_seeds_selling_kg) | cal_sunflower_quant_seeds_selling_kg == 0, NA, cal_sunflower_price_selling_seeds_kg))%>%
+  mutate(cal_sunflower_price_selling_seeds_kg = replace_na(cal_sunflower_price_selling_seeds_kg, 0))
+
+
+#####soybean
+soybean_revenue <- soybean_revenue %>%
+    # Convert relevant columns to numeric
+  mutate(across(c(f_soybean_quant_prod, cal_soybean_measurement_prod, f_soybean_quant_sold, cal_soybean_measurement_sold, f_soybean_quant_lost, cal_soybean_measurement_lost, f_soybean_price), as.numeric)) %>%
+  ##Calculate the quantities focus crop
+  mutate(cal_soybean_quant_prod_kg = f_soybean_quant_prod * cal_soybean_measurement_prod) %>%
+  mutate(cal_soybean_quant_sold_kg = f_soybean_quant_sold * cal_soybean_measurement_sold) %>%
+  mutate(cal_soybean_quant_lost_kg = f_soybean_quant_lost * cal_soybean_measurement_lost) %>%
+    mutate(cal_soybean_quant_seeds_kg = f_soybean_use_seeds_quant * cal_soybean_measurement_seeds) %>%
+  mutate(cal_soybean_quant_plant_kg = f_soybean_plant_quant * cal_soybean_measurement_seeds) %>%
+  mutate(cal_soybean_quant_seeds_selling_kg = f_soybean_use_seeds_selling_quant * cal_soybean_measurement_seeds) %>%
+  mutate_at(vars(starts_with("cal_soybean_quant")), ~replace_na(., 0)) 
+    
+  # also calculate the unit price 
+soybean_revenue <- soybean_revenue %>%
+  mutate(cal_soybean_price_kg = ifelse(cal_soybean_measurement_prod != 0, f_soybean_price/cal_soybean_measurement_sold, f_soybean_price),
+    cal_soybean_price_kg = ifelse(is.na(cal_soybean_quant_sold_kg) | cal_soybean_quant_sold_kg == 0, NA, cal_soybean_price_kg))%>%
+  mutate(cal_soybean_price_kg = replace_na(cal_soybean_price_kg, 0)) %>%
+  #
+  mutate(cal_soybean_price_selling_seeds_kg = ifelse(cal_soybean_measurement_prod != 0, f_soybean_price_selling_seeds/cal_soybean_measurement_seeds, f_soybean_price_selling_seeds),
+    cal_soybean_price_selling_seeds_kg = ifelse(is.na(cal_soybean_quant_seeds_selling_kg) | cal_soybean_quant_seeds_selling_kg == 0, NA, cal_soybean_price_selling_seeds_kg))%>%
+  mutate(cal_soybean_price_selling_seeds_kg = replace_na(cal_soybean_price_selling_seeds_kg, 0))
+```
+
+```{r, include = FALSE}
+maize_revenue <- maize_revenue %>%
+  mutate(cal_maize_price_kg = ifelse(cal_maize_quant_sold_kg > 0 & is.na(cal_maize_price_kg), median(cal_maize_price_kg), cal_maize_price_kg))
+onion_revenue <- onion_revenue %>%
+  mutate(cal_onion_price_kg = ifelse(cal_onion_quant_sold_kg > 0 & is.na(cal_onion_price_kg), median(cal_onion_price_kg), cal_onion_price_kg))
+sunflower_revenue <- sunflower_revenue %>%
+  mutate(cal_sunflower_price_kg = ifelse(cal_sunflower_quant_sold_kg > 0 & is.na(cal_sunflower_price_kg), median(cal_sunflower_price_kg), cal_sunflower_price_kg))
+soybean_revenue <- soybean_revenue %>%
+  mutate(cal_soybean_price_kg = ifelse(cal_soybean_quant_sold_kg > 0 & is.na(cal_soybean_price_kg), median(cal_soybean_price_kg), cal_soybean_price_kg))
+```
+
+Check whether the calculations went well. We make a subset of the data with relevant variables. Click on the dataset to sort the columns to detect strange numbers and solve if necessary.
+
+```{r, include = FALSE}
+#Maize
+maize_quantities_subset <- maize_revenue %>% select(f_maize_measurement_prod, cal_maize_measurement_prod, f_maize_quant_prod, cal_maize_quant_prod_kg, f_maize_measurement_sold, cal_maize_measurement_sold, f_maize_quant_sold, cal_maize_quant_sold_kg, f_maize_measurement_lost, cal_maize_measurement_lost, f_maize_quant_lost, cal_maize_quant_lost_kg, f_maize_price, cal_maize_measurement_prod, cal_maize_price_kg, f_maize_measurement_seeds, cal_maize_measurement_seeds, f_maize_use_seeds_quant, cal_maize_quant_seeds_kg, f_maize_plant_quant, cal_maize_quant_plant_kg, f_maize_use_seeds_selling_quant, cal_maize_quant_seeds_selling_kg, f_maize_price_selling_seeds, cal_maize_price_selling_seeds_kg)
+#Onion
+onion_quantities_subset <- onion_revenue %>% select(f_onion_measurement_prod, cal_onion_measurement_prod, f_onion_quant_prod, cal_onion_quant_prod_kg, f_onion_measurement_sold, cal_onion_measurement_sold, f_onion_quant_sold, cal_onion_quant_sold_kg, f_onion_measurement_lost, cal_onion_measurement_lost, f_onion_quant_lost, cal_onion_quant_lost_kg, f_onion_price, cal_onion_measurement_prod, cal_onion_price_kg) 
+# , f_onion_measurement_seeds, cal_onion_measurement_seeds, f_onion_use_seeds_quant, cal_onion_quant_seeds_kg, f_onion_plant_quant, cal_onion_quant_plant_kg, f_onion_use_seeds_selling_quant, cal_onion_quant_seeds_selling_kg, f_onion_price_selling_seeds, cal_onion_price_selling_seeds_kg)
+
+#Sunflower
+sunflower_quantities_subset <- sunflower_revenue %>% select(f_sunflower_measurement_prod, cal_sunflower_measurement_prod, f_sunflower_quant_prod, cal_sunflower_quant_prod_kg, f_sunflower_measurement_sold, cal_sunflower_measurement_sold, f_sunflower_quant_sold, cal_sunflower_quant_sold_kg, f_sunflower_measurement_lost, cal_sunflower_measurement_lost, f_sunflower_quant_lost, cal_sunflower_quant_lost_kg, f_sunflower_price, cal_sunflower_measurement_prod, cal_sunflower_price_kg, f_sunflower_measurement_seeds, cal_sunflower_measurement_seeds, f_sunflower_use_seeds_quant, cal_sunflower_quant_seeds_kg, f_sunflower_plant_quant, cal_sunflower_quant_plant_kg, f_sunflower_use_seeds_selling_quant, cal_sunflower_quant_seeds_selling_kg, f_sunflower_price_selling_seeds, cal_sunflower_price_selling_seeds_kg)
+
+#Soybean
+soybean_quantities_subset <- soybean_revenue %>% select(f_soybean_measurement_prod, cal_soybean_measurement_prod, f_soybean_quant_prod, cal_soybean_quant_prod_kg, f_soybean_measurement_sold, cal_soybean_measurement_sold, f_soybean_quant_sold, cal_soybean_quant_sold_kg, f_soybean_measurement_lost, cal_soybean_measurement_lost, f_soybean_quant_lost, cal_soybean_quant_lost_kg, f_soybean_price, cal_soybean_measurement_prod, cal_soybean_price_kg, f_soybean_measurement_seeds, cal_soybean_measurement_seeds, f_soybean_use_seeds_quant, cal_soybean_quant_seeds_kg, f_soybean_plant_quant, cal_soybean_quant_plant_kg, f_soybean_use_seeds_selling_quant, cal_soybean_quant_seeds_selling_kg, f_soybean_price_selling_seeds, cal_soybean_price_selling_seeds_kg)
+
+```
+
+
+## 3) Focus crop revenue calculation
+
+check the revenue time period and harmonize if not
+
+```{r}
+# Check how many seasons there are to adjust the following code 
+ table(maize_revenue$time_maize)
+```
+
+```{r}
+# #harmonise season if not
+ maize_revenue <- maize_revenue %>%
+   mutate(time_maize=ifelse(time_maize== "season1" |time_maize=="ወቅት1",  "season 1",
+                                        ifelse(time_maize== "ወቅት 2 ", "season 2" ,
+                                               time_maize)))
+```
+
+Calculate the revenue (globally and per season). make sure the name of season is updated (if not labeled in the same way) in the code below
+Maize
+```{r, include = FALSE}
+maize_revenue <- maize_revenue %>%
+  mutate(cal_maize_revenue = cal_maize_quant_sold_kg * cal_maize_price_kg,
+         cal_maize_revenue = replace_na(cal_maize_revenue, 0))
+   
+
+    #Sum the quantities for those that entered data for multiple seasons
+  #Ensure we have 1 row of data for each farmer
+  #as we have some farmer reporting more than one season, aggregate values to have the total. use mean for the price
+  maize_revenue_subset <- maize_revenue %>%
+mutate(f_maize_price = ifelse(f_maize_price==9999|f_maize_price==9998,NA, f_maize_price))%>%
+  group_by(`_submission__id`) %>%
+  ## Summarize data for each submission
+  summarise(cal_maize_quant_prod_kg =  sum(cal_maize_quant_prod_kg,  na.rm = TRUE),
+            cal_maize_quant_sold_kg =  sum(cal_maize_quant_sold_kg, na.rm = TRUE),
+            cal_maize_quant_lost_kg =  sum(cal_maize_quant_lost_kg, na.rm = TRUE),
+            cal_maize_revenue = sum(cal_maize_revenue, na.rm = TRUE),
+            cal_maize_price_kg = mean(cal_maize_price_kg, na.rm = TRUE), 
+            cal_maize_price = mean(f_maize_price, na.rm = TRUE),
+            cal_maize_quant_seeds_kg = sum(cal_maize_quant_seeds_kg, na.rm = TRUE),
+            cal_maize_quant_plant_kg = sum(cal_maize_quant_plant_kg, na.rm = TRUE),
+            cal_maize_quant_seeds_selling_kg = sum(cal_maize_quant_seeds_selling_kg, na.rm = TRUE),
+            cal_maize_price_selling_seeds = mean(f_maize_price_selling_seeds, na.rm = TRUE),
+            cal_maize_price_selling_seeds_kg = mean(cal_maize_price_selling_seeds_kg, na.rm = TRUE),
+            # Take the first reported value
+            cal_maize_measurement_sold = first(cal_maize_measurement_sold),
+            f_maize_measurement_sold = first(f_maize_measurement_sold),
+            cal_maize_measurement_prod = first(cal_maize_measurement_prod),
+            f_maize_measurement_prod = first(f_maize_measurement_prod),
+            f_maize_income_share = first(f_maize_income_share),
+            f_maize_own_consumption_yn = first(f_maize_own_consumption_yn),
+            f_maize_own_consumption = first(f_maize_own_consumption),
+            f_maize_lost_yn = first(f_maize_lost_yn),
+            f_maize_measurement_lost = first(f_maize_measurement_lost),
+            f_maize_use_seeds_yn = first(f_maize_use_seeds_yn),
+            f_maize_measurement_seeds = first(f_maize_measurement_seeds)
+            )
+```
+
+Onion
+```{r, include = FALSE}
+onion_revenue <- onion_revenue %>%
+  mutate(cal_onion_revenue = cal_onion_quant_sold_kg * cal_onion_price_kg,
+         cal_onion_revenue = replace_na(cal_onion_revenue, 0))
+   
+
+    #Sum the quantities for those that entered data for multiple seasons
+  #Ensure we have 1 row of data for each farmer
+  #as we have some farmer reporting more than one season, aggregate values to have the total. use mean for the price
+  onion_revenue_subset <- onion_revenue %>%
+mutate(f_onion_price = ifelse(f_onion_price==9999|f_onion_price==9998,NA, f_onion_price))%>%
+  group_by(`_submission__id`) %>%
+  ## Summarize data for each submission
+  summarise(cal_onion_quant_prod_kg =  sum(cal_onion_quant_prod_kg,  na.rm = TRUE),
+            cal_onion_quant_sold_kg =  sum(cal_onion_quant_sold_kg, na.rm = TRUE),
+            cal_onion_quant_lost_kg =  sum(cal_onion_quant_lost_kg, na.rm = TRUE),
+            cal_onion_revenue = sum(cal_onion_revenue, na.rm = TRUE),
+            cal_onion_price_kg = mean(cal_onion_price_kg, na.rm = TRUE), 
+            cal_onion_price = mean(f_onion_price, na.rm = TRUE),
+            # cal_onion_quant_seeds_kg = sum(cal_onion_quant_seeds_kg, na.rm = TRUE),
+            # cal_onion_quant_plant_kg = sum(cal_onion_quant_plant_kg, na.rm = TRUE),
+            # cal_onion_quant_seeds_selling_kg = sum(cal_onion_quant_seeds_selling_kg, na.rm = TRUE),
+            # cal_onion_price_selling_seeds = mean(f_onion_price_selling_seeds, na.rm = TRUE),
+            # cal_onion_price_selling_seeds_kg = mean(cal_onion_price_selling_seeds_kg, na.rm = TRUE),
+            # Take the first reported value
+            cal_onion_measurement_sold = first(cal_onion_measurement_sold),
+            f_onion_measurement_sold = first(f_onion_measurement_sold),
+            cal_onion_measurement_prod = first(cal_onion_measurement_prod),
+            f_onion_measurement_prod = first(f_onion_measurement_prod),
+            f_onion_income_share = first(f_onion_income_share),
+            f_onion_own_consumption_yn = first(f_onion_own_consumption_yn),
+            f_onion_own_consumption = first(f_onion_own_consumption),
+            f_onion_lost_yn = first(f_onion_lost_yn),
+            f_onion_measurement_lost = first(f_onion_measurement_lost),
+            f_onion_use_seeds_yn = first(f_onion_use_seeds_yn)
+            )
+
+```
+
+Sunflower
+```{r, include = FALSE}
+sunflower_revenue <- sunflower_revenue %>%
+  mutate(cal_sunflower_revenue = cal_sunflower_quant_sold_kg * cal_sunflower_price_kg,
+         cal_sunflower_revenue = replace_na(cal_sunflower_revenue, 0))
+   
+
+    #Sum the quantities for those that entered data for multiple seasons
+  #Ensure we have 1 row of data for each farmer
+  #as we have some farmer reporting more than one season, aggregate values to have the total. use mean for the price
+  sunflower_revenue_subset <- sunflower_revenue %>%
+mutate(f_sunflower_price = ifelse(f_sunflower_price==9999|f_sunflower_price==9998,NA, f_sunflower_price))%>%
+  group_by(`_submission__id`) %>%
+  ## Summarize data for each submission
+  summarise(cal_sunflower_quant_prod_kg =  sum(cal_sunflower_quant_prod_kg,  na.rm = TRUE),
+            cal_sunflower_quant_sold_kg =  sum(cal_sunflower_quant_sold_kg, na.rm = TRUE),
+            cal_sunflower_quant_lost_kg =  sum(cal_sunflower_quant_lost_kg, na.rm = TRUE),
+            cal_sunflower_revenue = sum(cal_sunflower_revenue, na.rm = TRUE),
+            cal_sunflower_price_kg = mean(cal_sunflower_price_kg, na.rm = TRUE), 
+            cal_sunflower_price = mean(f_sunflower_price, na.rm = TRUE),
+            cal_sunflower_quant_seeds_kg = sum(cal_sunflower_quant_seeds_kg, na.rm = TRUE),
+            cal_sunflower_quant_plant_kg = sum(cal_sunflower_quant_plant_kg, na.rm = TRUE),
+            cal_sunflower_quant_seeds_selling_kg = sum(cal_sunflower_quant_seeds_selling_kg, na.rm = TRUE),
+            cal_sunflower_price_selling_seeds = mean(f_sunflower_price_selling_seeds, na.rm = TRUE),
+            cal_sunflower_price_selling_seeds_kg = mean(cal_sunflower_price_selling_seeds_kg, na.rm = TRUE),
+            # Take the first reported value
+            cal_sunflower_measurement_sold = first(cal_sunflower_measurement_sold),
+            f_sunflower_measurement_sold = first(f_sunflower_measurement_sold),
+            cal_sunflower_measurement_prod = first(cal_sunflower_measurement_prod),
+            f_sunflower_measurement_prod = first(f_sunflower_measurement_prod),
+            f_sunflower_income_share = first(f_sunflower_income_share),
+            f_sunflower_lost_yn = first(f_sunflower_lost_yn),
+            f_sunflower_measurement_lost = first(f_sunflower_measurement_lost),
+            f_sunflower_use_seeds_yn = first(f_sunflower_use_seeds_yn),
+            f_sunflower_measurement_seeds = first(f_sunflower_measurement_seeds)
+            )
+
+```
+
+Soybean
+```{r, include = FALSE}
+soybean_revenue <- soybean_revenue %>%
+  mutate(cal_soybean_revenue = cal_soybean_quant_sold_kg * cal_soybean_price_kg,
+         cal_soybean_revenue = replace_na(cal_soybean_revenue, 0))
+   
+
+    #Sum the quantities for those that entered data for multiple seasons
+  #Ensure we have 1 row of data for each farmer
+  #as we have some farmer reporting more than one season, aggregate values to have the total. use mean for the price
+  soybean_revenue_subset <- soybean_revenue %>%
+mutate(f_soybean_price = ifelse(f_soybean_price==9999|f_soybean_price==9998,NA, f_soybean_price))%>%
+  group_by(`_submission__id`) %>%
+  ## Summarize data for each submission
+  summarise(cal_soybean_quant_prod_kg =  sum(cal_soybean_quant_prod_kg,  na.rm = TRUE),
+            cal_soybean_quant_sold_kg =  sum(cal_soybean_quant_sold_kg, na.rm = TRUE),
+            cal_soybean_quant_lost_kg =  sum(cal_soybean_quant_lost_kg, na.rm = TRUE),
+            cal_soybean_revenue = sum(cal_soybean_revenue, na.rm = TRUE),
+            cal_soybean_price_kg = mean(cal_soybean_price_kg, na.rm = TRUE), 
+            cal_soybean_price = mean(f_soybean_price, na.rm = TRUE),
+            cal_soybean_quant_seeds_kg = sum(cal_soybean_quant_seeds_kg, na.rm = TRUE),
+            cal_soybean_quant_plant_kg = sum(cal_soybean_quant_plant_kg, na.rm = TRUE),
+            cal_soybean_quant_seeds_selling_kg = sum(cal_soybean_quant_seeds_selling_kg, na.rm = TRUE),
+            cal_soybean_price_selling_seeds = mean(f_soybean_price_selling_seeds, na.rm = TRUE),
+            cal_soybean_price_selling_seeds_kg = mean(cal_soybean_price_selling_seeds_kg, na.rm = TRUE),
+            # Take the first reported value
+            cal_soybean_measurement_sold = first(cal_soybean_measurement_sold),
+            f_soybean_measurement_sold = first(f_soybean_measurement_sold),
+            f_soybean_measurement_sold_other = first(f_soybean_measurement_sold_other),
+            cal_soybean_measurement_prod = first(cal_soybean_measurement_prod),
+            f_soybean_measurement_prod = first(f_soybean_measurement_prod),
+            f_soybean_measurement_prod_other = first(f_soybean_measurement_prod_other),
+            f_soybean_income_share = first(f_soybean_income_share),
+            f_soybean_own_consumption_yn = first(f_soybean_own_consumption_yn),
+            f_soybean_own_consumption = first(f_soybean_own_consumption),
+            f_soybean_lost_yn = first(f_soybean_lost_yn),
+            f_soybean_measurement_lost = first(f_soybean_measurement_lost),
+            f_soybean_use_seeds_yn = first(f_soybean_use_seeds_yn),
+            f_soybean_measurement_seeds = first(f_soybean_measurement_seeds)
+            )
+```
+
+
+```{r}
+ Data <- Data %>%
+   rename(`_submission__id` = `_id`)
+
+safe_left_join <- function(x, y, by) {
+  left_join(
+    x %>% distinct(across(all_of(by)), .keep_all = TRUE),
+    y %>% distinct(across(all_of(by)), .keep_all = TRUE),
+    by = by
+  )
+ }
+
+
+Data <- Data %>%
+  safe_left_join(maize_revenue_subset, by = "_submission__id") %>%
+  safe_left_join(onion_revenue_subset, by = "_submission__id") %>%
+  safe_left_join(sunflower_revenue_subset, by = "_submission__id") %>%
+  safe_left_join(soybean_revenue_subset, by = "_submission__id")
+
+```
+
+```{r}
+Data <- Data %>%
+  mutate(cal_focus_revenue = rowSums(across(c(cal_maize_revenue, cal_onion_revenue, cal_sunflower_revenue, cal_soybean_revenue)), na.rm = TRUE))
+
+Data$cal_focus_revenue
+```
+
+## 4) Productivity calculation
+
+Calculate the productivity variable by dividing the production by the farm size dedicated to the focus crop (in acre).
+
+```{r, include = FALSE}
+
+Data <- Data %>%
+  mutate(across(c(cal_maize_quant_prod_kg, cal_onion_quant_prod_kg, cal_sunflower_quant_prod_kg, cal_soybean_quant_prod_kg, f_maize_size_acre, f_onion_size_acre, f_sunflower_size_acre, f_soybean_size_acre), as.numeric)) %>%
+  mutate(f_maize_size_acre = replace_na(f_maize_size_acre, 0),
+         f_onion_size_acre = replace_na(f_onion_size_acre, 0),
+         f_sunflower_size_acre = replace_na(f_sunflower_size_acre, 0),
+         f_soybean_size_acre = replace_na(f_soybean_size_acre, 0),
+         cal_maize_productivity_acre = ifelse(f_maize_size_acre > 0, cal_maize_quant_prod_kg/f_maize_size_acre, NA),
+         cal_onion_productivity_acre = ifelse(f_onion_size_acre > 0, cal_onion_quant_prod_kg/f_onion_size_acre, NA),
+         cal_sunflower_productivity_acre = ifelse(f_sunflower_size_acre > 0, cal_sunflower_quant_prod_kg/f_sunflower_size_acre, NA),
+         cal_soybean_productivity_acre = ifelse(f_soybean_size_acre > 0, cal_soybean_quant_prod_kg/f_soybean_size_acre, NA))
+```
+
+## 5) Labour costs calculation
+
+@warning: depending on how labour cost is asked (if different to the variable below), we may be to review this code.
+
+Here we calculate labor cost for temporary workers and for household using repeated group data about activities. after that, sum it by parent_index and store in a subset to be merged with "Data". then calculate the labour cost with and without household labour.
+
+Note: Only mupltiply by f_labour_temporary_workers_activity if f_labour_temporary_wage_per_day_activity is is asked per worker and not for total
+
+```{r}
+labour_summary <- labour_use %>%
+    mutate(
+    f_focus_labour_costs_season = ifelse(f_focus_labour_costs_season==9999|f_focus_labour_costs_season==9998,NA,f_focus_labour_costs_season),
+        f_focus_labour_wage_per_day_female = ifelse(f_focus_labour_wage_per_day_female==9999|f_focus_labour_wage_per_day_female==9998,NA,f_focus_labour_wage_per_day_female),
+    f_focus_labour_wage_per_day_male = ifelse(f_focus_labour_wage_per_day_male==9999|f_focus_labour_wage_per_day_male==9998,NA,f_focus_labour_wage_per_day_male))%>%
+  group_by(`_submission__id`) %>%
+  summarise(cal_labour_cost = sum(f_focus_labour_costs_season, na.rm = TRUE),
+ cal_focus_labour_wage_per_day_female = mean(f_focus_labour_wage_per_day_female, na.rm = TRUE),
+     cal_focus_labour_wage_per_day_male = mean(f_focus_labour_wage_per_day_male, na.rm = TRUE),
+ f_crop_labour_types = first(f_crop_labour_types),
+ f_focus_labour_hired_activities = first(f_focus_labour_hired_activities),
+ f_focus_labour_costs_payment = first(f_focus_labour_costs_payment)
+  )
+
+```
+
+```{r}
+ # Merge the summarized data back to the main dataset
+Data <- Data %>%
+  safe_left_join(labour_summary, by = "_submission__id")
+```
+
+
+## 6) Input costs calculation
+
+Input costs are asked per season. This code sums up the costs for seasons to arrive at a total input cost.
+
+```{r, include = FALSE}
+#cost per season
+input_use_costs <- input_use_costs %>%
+    mutate(across(starts_with("f_inputs_cost"), ~ ifelse(.x == 9999 | .x == 9998, NA, .x))) %>%
+  mutate(total_inputs_costs = rowSums(across(starts_with("f_inputs_cost")), na.rm = TRUE))
+  
+inputs_summary <- input_use_costs %>%
+  group_by(`_submission__id`) %>%
+  summarise(cal_inputs_costs = sum(total_inputs_costs, na.rm = TRUE),
+            f_inputs_usage_types = first(f_inputs_usage_types),
+            f_inputs_planted_seeds_type_maize = first(f_inputs_planted_seeds_type_maize),
+            f_inputs_planted_seeds_type_onion = first(f_inputs_planted_seeds_type_onion),
+            f_inputs_planted_seeds_type_sunflower = first(f_inputs_planted_seeds_type_sunflower),
+            f_inputs_planted_seeds_type_soybean = first(f_inputs_planted_seeds_type_soybean)
+              )
+```
+
+
+```{r}
+Data <- Data %>%
+  safe_left_join(inputs_summary, by = "_submission__id")
+```
+
+
+## 7) Other costs calculation
+
+```{r}
+# Fill all NA values 
+# variables_to_replace <- c("f_focus_costs_irrigation", "f_focus_costs_energy",
+#                           "f_costs_land_focuscrop", "f_focus_costs_storage",
+#                           "f_focus_costs_marketing", "f_focus_costs_transporation")
+# # Replace NA values with 0 for the specified variables using dplyr
+# Data <- Data %>%
+#   mutate_at(vars(all_of(variables_to_replace)), ~replace_na(., 0))
+# # Calculation
+# Data <- Data %>%
+#   mutate(cal_focus_other_costs = f_focus_costs_irrigation + f_focus_costs_energy + f_costs_land_focuscrop + f_focus_costs_storage + f_focus_costs_marketing + f_focus_costs_transporation)
+#here we have the global cost
+Data <- Data %>%
+    mutate(f_focus_costs_other = ifelse(f_focus_costs_other == 9999 | f_focus_costs_other == 9998, 0, f_focus_costs_other)) %>%
+    mutate(f_focus_costs_other = ifelse(is.na(f_focus_costs_other), 0, f_focus_costs_other)) %>%
+  #calculation
+  mutate(
+    cal_focus_other_costs = f_focus_costs_other
+  )
+```
+
+
+## 8) Total cost focus crop
+
+
+```{r}
+Data <- Data %>%
+    mutate(cal_focus_cost = cal_labour_cost + cal_inputs_costs + cal_focus_other_costs,
+           cal_focus_cost = replace_na(cal_focus_cost, 0)) 
+# Apply outlier detection for cal_focus_cost, as there are a few extreme outliers 
+# Data <- Data %>%
+#   mutate(
+#     cal_focus_cost = outlier_detection(cal_focus_cost)
+#   )
+```
+
+
+## 9) Net-income focus crop
+
+```{r}
+Data <- Data %>%
+  mutate(cal_focus_income = cal_focus_revenue - cal_focus_cost)
+```
+
+## 10) Net-income other crops
+Share variables are qualitatives for this time
+```{r}
+# Clean data type and values from share variable
+# Data$othermain
+# Data$f_othermaincrop_1_income_share <- as.numeric(Data$f_othermaincrop_1_income_share)
+# Data <- Data %>% mutate(f_othermaincrop_1_income_share = ifelse(f_othermaincrop_1_income_share == 10, 1, f_othermaincrop_1_income_share))
+# 
+# Data$f_othermaincrop_2_income_share <- as.numeric(Data$f_othermaincrop_2_income_share)
+# Data <- Data %>% mutate(f_othermaincrop_2_income_share = ifelse(f_othermaincrop_2_income_share == 10, 1, f_othermaincrop_2_income_share))
+```
+
+```{r}
+# check for rows where cost is >0 and income missing 
+Data <- Data %>%
+  mutate(f_othermaincrop_1_costs = ifelse(is.na(f_othermaincrop_1_inc_sold), NA, f_othermaincrop_1_costs)) %>%
+
+  mutate(f_othermaincrop2_costs = ifelse(is.na(f_othermaincrop_2_inc_sold), NA, f_othermaincrop2_costs))
+
+```
+
+```{r, include = FALSE}
+# Fill NA's 
+variables_to_replace <- c("f_othermaincrop_1_costs", "f_othermaincrop2_costs")
+Data <- Data %>%
+  mutate_at(vars(all_of(variables_to_replace)), ~replace_na(., 0))
+
+# calculation
+Data <- Data %>%
+  mutate(cal_othermaincrop_1_cost = f_othermaincrop_1_costs) %>%
+  mutate(cal_othermaincrop_2_cost = f_othermaincrop2_costs)
+
+```
+
+Following code calculates production value for other crops. This is only done in Living income studies! Check whether the code applies to this case.
+
+```{r, include = FALSE}
+# variables_to_replace <- c("f_othermaincrop_1_quant_prod", "f_othermaincrop_1_price",
+#                           "f_othermaincrop_2_quant_prod", "f_othermaincrop_2_price")
+# Data <- Data %>%
+#   mutate_at(vars(all_of(variables_to_replace)), ~replace_na(., 0))
+# 
+# Data <- Data %>%
+#   mutate(cal_othermaincrop_production_value = f_othermaincrop_1_quant_prod * f_othermaincrop_1_price + f_othermaincrop_2_quant_prod * f_othermaincrop_2_price)
+```
+
+Revenues from other crops:
+
+```{r}
+# Clean data type and values from share variable
+# Data$f_other_crop_income_share <- as.numeric(Data$f_other_crop_income_share)
+# Data <- Data %>% mutate(f_other_crop_income_share = ifelse(f_other_crop_income_share == 10, 1, f_other_crop_income_share))
+```
+
+```{r}
+variables_to_replace <- c("f_othermaincrop_1_inc_sold", "f_othermaincrop_2_inc_sold",
+                          "f_other_crop_income")
+Data <- Data %>%
+  mutate_at(vars(all_of(variables_to_replace)), ~replace_na(., 0))
+
+Data <- Data %>%
+  mutate(cal_othermaincrop_1_inc_sold = f_othermaincrop_1_inc_sold) %>%
+  mutate(cal_othermaincrop_2_inc_sold = f_othermaincrop_2_inc_sold) %>%
+  mutate(cal_other_crop_income = f_other_crop_income)
+```
+
+Net income calculation:
+
+```{r}
+Data <- Data %>%
+  mutate(cal_other_crop_income = cal_othermaincrop_1_inc_sold - cal_othermaincrop_1_cost + cal_othermaincrop_2_inc_sold -  cal_othermaincrop_2_cost + cal_other_crop_income)
+```
+
+```{r}
+# Subset to check calculations 
+cal_otherinc_subset <- Data %>% select(c(cal_othermaincrop_1_inc_sold, cal_othermaincrop_1_cost, cal_othermaincrop_2_inc_sold, cal_othermaincrop_2_cost, cal_other_crop_income))
+```
+
+## 11) Net-income livestock calculation
+
+```{r}
+
+# Data$f_livestock_income_share <- as.numeric(Data$f_livestock_income_share)
+# 
+# Data <- Data %>% mutate(f_livestock_income_share = ifelse(f_livestock_income_share == 10, 1, f_livestock_income_share))
+```
+
+```{r}
+# Data <- Data %>% 
+#   mutate(f_livestock_income_total = ifelse(f_livestock_income_share == 0, NA, f_livestock_income_total))
+```
+
+check the available information that can be include in variable to replace, then adapt the code
+
+```{r}
+variables_to_replace <- c("f_livestock_revenue_total", "f_livestock_costs")  #"f_livestock_nr_labourers", "f_livestock_nr_hired_labourers", "f_livestock_days_hiredlabour", "f_livestock_wages_hiredlabour",                               "f_livestock_costs_other")
+Data <- Data %>%
+ mutate_at(vars(all_of(variables_to_replace)), ~replace_na(., 0))
+# 
+ Data <- Data %>%
+   mutate(cal_livestock_revenue = f_livestock_revenue_total,
+          cal_livestock_cost = f_livestock_costs)
+ #mutate(cal_livestock_labour_cost = (f_livestock_nr_hired_labourers * f_livestock_days_hiredlabour * f_livestock_wages_hiredlabour)) %>%
+ #mutate(cal_livestock_costs_other = f_livestock_costs_other) %>%
+ #mutate(cal_livestock_cost = cal_livestock_prod_cost + cal_livestock_costs_other+ cal_livestock_labour_cost)
+
+# Net income
+Data <- Data %>%
+  mutate(cal_livestock_income = cal_livestock_revenue - cal_livestock_cost,
+         cal_livestock_income = replace_na(cal_livestock_income, 0))
+```
+
+```{r}
+subset_livestock <- Data %>%
+  select(c(
+    f_livestock_revenue_total,
+    f_livestock_costs,
+    cal_livestock_cost,
+    cal_livestock_revenue,
+    cal_livestock_income
+  ))
+```
+
+## 12) General farm costs calculation
+
+```{r}
+# variables_to_replace <- c("f_equip_costs", "hh_loan_one_size",
+#                           "hh_loan_one_value_interest", "hh_loan_two_size",                                              "hh_loan_two_value_interest")
+variables_to_replace = c("f_equip_costs","hh_loan_agri_value_interest", "hh_loan_agri_size")
+Data <- Data %>%
+  mutate(across(all_of(variables_to_replace), ~replace_na(., 0)))
+
+Data <- Data %>% 
+  mutate(cal_equipment_costs = f_equip_costs,
+         loan_1_cost = ifelse(hh_loan_agri_value_interest == 0, 0,
+                         hh_loan_agri_size * (hh_loan_agri_value_interest / 100)),
+    cal_farm_costs_loans = loan_1_cost
+  )
+
+# total costs 
+Data <- Data %>% mutate(cal_farm_costs_general = cal_equipment_costs + cal_farm_costs_loans)
+
+# Delete intermediate variables 
+Data <- Data %>% select(-loan_1_cost)
+
+```
+
+```{r}
+subset_general_costs <- Data %>%
+  select(c(
+    hh_loan_agri_value_interest,
+    hh_loan_agri_size,
+    f_equip_costs,
+    cal_equipment_costs,
+    cal_farm_costs_loans,
+    cal_farm_costs_general
+  ))
+```
+
+## 13) Off-farm and other income calculation
+
+check and add any variable that should be considered
+
+```{r}
+#variables_to_replace <- c("f_nonfarm_enterpr_income_month", "f_income_offfarmlabour_month")
+Data <- Data %>%
+  mutate(f_nonfarm_income_total= ifelse(is.na(f_nonfarm_income_total),0, f_nonfarm_income_total))
+
+Data <- Data %>%
+  mutate(cal_offfarm_income = f_nonfarm_income_total)
+
+```
+
+## 14) Farm income calculation
+
+```{r}
+Data <- Data %>%
+  mutate(cal_farm_income = cal_focus_income + cal_other_crop_income + cal_livestock_income - cal_farm_costs_general,
+         cal_farm_income = replace_na(cal_farm_income, 0))
+```
+
+## 15) Actual income calculation
+
+There are different approaches to calculating the actual income. The first version is the default. Use this approach, unless communicated otherwise.
+
+```{r}
+Data <- Data %>%
+#First approach for actual income, based on as many direct inputed values of the farmer.
+ mutate(
+   cal_actual_income = cal_focus_income + cal_other_crop_income + cal_livestock_income - cal_farm_costs_general + cal_offfarm_income) %>%
+ mutate(
+#Set cal_actual_income to missing (NA) if cal_focus_income is 0 or missing
+   cal_actual_income = ifelse(is.na(cal_focus_income) | cal_focus_income == 0 | cal_focus_revenue==0 | is.na(cal_focus_revenue), NA, cal_actual_income))
+Data$cal_actual_income
+```
+
+##prepare other dataset to merge
+```{r}
+#summarise and merge organisation data
+company_loop_org_summary <- company_loop_org %>%
+      group_by(`_submission__id`) %>%
+      summarize(selected_company_label = first(selected_company_label),
+                cs_sdm_company = first(cs_sdm_company),
+                cs_sdm_company_services = first(cs_sdm_company_services),
+                cs_sdm_company_services_wishes = first(cs_sdm_company_services_wishes),
+                cs_sdm_company_contract_yn = first(cs_sdm_company_contract_yn),
+                cs_recommendation = first(cs_recommendation),
+                cs_positive_recommendation = first(cs_positive_recommendation),
+                cs_negative_recommendation = first(cs_negative_recommendation),
+                cs_most_useful_service = first(cs_most_useful_service),
+                cs_least_useful_service = first(cs_least_useful_service),
+                cs_most_useful_service = first(cs_most_useful_service),
+                cal_cs_sdm_company_services_years = mean(cs_sdm_company_services_years, na.rm = TRUE),
+                cal_cs_sdm_company_yrs_selling = mean(cs_sdm_company_yrs_selling, na.rm = TRUE),
+                cal_cs_sdm_company_contract_duration = mean(cs_sdm_company_contract_duration, na.rm = TRUE))
+
+company_loop_org_summary <- company_loop_org_summary %>%
+  mutate(across(c(cal_cs_sdm_company_services_years,
+                  cal_cs_sdm_company_yrs_selling,
+                  cal_cs_sdm_company_contract_duration),
+                ~ ifelse(is.infinite(.), NA, .)))
+
+Data <- Data %>%
+  safe_left_join(company_loop_org_summary, by= "_submission__id")
+```
+```{r}
+#Maize
+company_loop_maize_summary <- company_loop_maize %>%
+  group_by(`_submission__id`) %>%
+  summarise(
+    selected_company_label_maize = first(selected_company_label_maize),
+    cal_maize_quant_sold_cs_sdm_company = sum(f_maize_quant_sold_cs_sdm_company, na.rm = TRUE))
+
+#Onion
+company_loop_onion_summary <- company_loop_onion %>%
+  group_by(`_submission__id`) %>%
+  summarise(
+    selected_company_label_onion = first(selected_company_label_onion),
+    cal_onion_quant_sold_cs_sdm_company = sum(f_onion_quant_sold_cs_sdm_company, na.rm = TRUE))
+
+#Sunflower
+company_loop_sunflower_summary <- company_loop_sunflower %>%
+  group_by(`_submission__id`) %>%
+  summarise(
+    selected_company_label_sunflower = first(selected_company_label_sunflower),
+    cal_sunflower_quant_sold_cs_sdm_company = sum(f_sunflower_quant_sold_cs_sdm_company, na.rm = TRUE))
+
+#Soybean
+company_loop_soybean_summary <- company_loop_soybean %>%
+  group_by(`_submission__id`) %>%
+  summarise(
+    selected_company_label_soybean = first(selected_company_label_soybean),
+    cal_soybean_quant_sold_cs_sdm_company = sum(f_soybean_quant_sold_cs_sdm_company, na.rm = TRUE))
+
+Data <- Data %>%
+  safe_left_join(company_loop_maize_summary, by = "_submission__id")%>%
+  safe_left_join(company_loop_onion_summary, by = "_submission__id")%>%
+  safe_left_join(company_loop_sunflower_summary, by = "_submission__id")%>%
+  safe_left_join(company_loop_soybean_summary, by = "_submission__id")
+```
+
+```{r}
+# make a check file to see whether everything went correct
+# 
+# subset <- Data %>% 
+#   select(cal_focus_quant_prod_kg, cal_focus_quant_sold_kg, cal_focus_price, 
+#          cal_focus_quant_own_consumption_kg, cal_focus_quant_lost_kg, 
+#          cal_focus_revenue, cal_focus_productivity_acre,cal_labour_cost, cal_inputs_costs, cal_focus_other_costs, cal_focus_cost, cal_focus_income, cal_othermaincrop_1_cost, cal_othermaincrop_2_cost, cal_othermaincrop_production_value,
+# cal_othermaincrop_1_inc_sold, cal_othermaincrop_2_inc_sold,cal_other_crop_income, cal_livestock_income, cal_equipment_costs, cal_farm_costs_loans, 
+# cal_farm_costs_general, cal_offfarm_income, cal_actual_income)
+ 
+subset <- Data %>%
+  select(starts_with("cal_"))
+write.xlsx(subset, "calculated_variables_script2.0.xlsx")
+```
+
+# Section 3 Descriptive statistics
+
+##1 Net Promotor score
+
+```{r, include = FALSE}
+
+
+hh_farmer_gender <- c("all farmers")
+    
+    NSP_total <- Data %>%
+      select(cs_sdm_company, cs_recommendation) %>% 
+      filter(cs_sdm_company == "yes")%>%
+      mutate(cs_recommendation = ifelse(is.na(cs_recommendation), "no input",cs_recommendation)) %>%
+      mutate(detractor = ifelse(cs_recommendation == "not likely"| cs_recommendation == "somewhat likely"| cs_recommendation == "likely",1,0),
+             promoter = ifelse(cs_recommendation == "very likely", 1,0),
+             passive = ifelse(cs_recommendation == "most likely"| cs_recommendation == "i dont know",1,0),
+             nr_recommenders = ifelse(cs_recommendation == "no input", 0,1)) %>%
+      summarize(nr_promoters = sum(promoter),
+                nr_detractors = sum(detractor),
+                nr_passive = sum(passive),
+                nr_farmers = sum(nr_recommenders)) %>%
+      mutate(nsp_total = round((nr_promoters/nr_farmers) - (nr_detractors/nr_farmers),2),
+             hh_farmer_gender = hh_farmer_gender)
+    
+    NSP_by_gender <- Data %>%
+      select(cs_sdm_company, cs_recommendation, hh_farmer_gender) %>% 
+      filter(cs_sdm_company == "yes")%>%
+      mutate(cs_recommendation = ifelse(is.na(cs_recommendation), "no input",cs_recommendation)) %>%
+      mutate(detractor = ifelse(cs_recommendation == "not likely"| cs_recommendation == "somewhat likely"| cs_recommendation == "likely",1,0),
+             promoter = ifelse(cs_recommendation == "very likely", 1,0),
+             passive = ifelse(cs_recommendation == "most likely"| cs_recommendation == "i dont know",1,0),
+             nr_recommenders = ifelse(cs_recommendation == "no input", 0,1)) %>%
+      group_by(hh_farmer_gender) %>%
+      summarize(nr_promoters = sum(promoter),
+                nr_detractors = sum(detractor),
+                nr_passive = sum(passive),
+                nr_farmers = sum(nr_recommenders)) %>%
+      mutate(nsp_gender = round((nr_promoters/nr_farmers) - (nr_detractors/nr_farmers),2))
+    
+    NSP <- full_join(NSP_total, NSP_by_gender)
+    NSP <- NSP %>% select(hh_farmer_gender, nr_farmers, nr_promoters, nr_detractors,nr_passive, nsp_total, nsp_gender)
+    
+```
+
+##2 Anonymise data for further use
+
+```{r, include = FALSE}
+Data <- Data %>%
+          rename(location_cascade_region = pi_location_first_admin) %>%  ### the variable on the right differs from case to case!!!
+          select(
+      -c(starts_with("pi_"), -contains("county")),
+      -c(farmer_name)) %>%
+          rename(pi_location_cascade_first_level = location_cascade_region)
+```
+
+##3 Summary statistics
+
+### All Farmers: numerical descriptives
+
+```{r, include = FALSE}
+
+ # Get numeric-only columns
+numeric_data <- Data %>% select(where(is.numeric))
+
+# Create summary tables
+mean_df <- numeric_data %>%
+  summarise(across(everything(), ~round(mean(., na.rm = TRUE), 2))) %>%
+  t() %>% as.data.frame() %>%
+  rownames_to_column("variable") %>%
+  rename(mean = V1)
+
+sd_df <- numeric_data %>%
+  summarise(across(everything(), ~round(sd(., na.rm = TRUE), 2))) %>%
+  t() %>% as.data.frame() %>%
+  rownames_to_column("variable") %>%
+  rename(sd = V1)
+
+min_df <- numeric_data %>%
+  summarise(across(everything(), ~round(min(., na.rm = TRUE), 2))) %>%
+  t() %>% as.data.frame() %>%
+  rownames_to_column("variable") %>%
+  rename(min = V1)
+
+max_df <- numeric_data %>%
+  summarise(across(everything(), ~round(max(., na.rm = TRUE), 2))) %>%
+  t() %>% as.data.frame() %>%
+  rownames_to_column("variable") %>%
+  rename(max = V1)
+
+freq_df <- numeric_data %>%
+  summarise(across(everything(), ~sum(!is.na(.)))) %>%
+  t() %>% as.data.frame() %>%
+  rownames_to_column("variable") %>%
+  rename(freq = V1)
+
+# Merge all summaries
+numerical_descriptives_all_farmers <- mean_df %>%
+  left_join(sd_df, by = "variable") %>%
+  left_join(min_df, by = "variable") %>%
+  left_join(max_df, by = "variable") %>%
+  left_join(freq_df, by = "variable") %>%
+  select(variable, freq, mean, sd, min, max)
+
+
+```
+
+### All farmers: single categorical descriptives
+
+```{r, include = FALSE}
+
+# Label and total number of respondents
+farmer_type <- "all farmers"
+nr_participants_raw <- nrow(Data)  # count total participants
+
+# Count total number of responses per variable (can be adjusted later)
+all_var <- tibble(
+  variable = NA_character_,
+  `farmer type` = farmer_type,
+  n = nr_participants_raw
+)
+
+# Identify all select_one questions
+single_mc <- survey_questions %>%
+  filter(str_starts(type, "select_one")) %>%
+  pull(name)
+
+# Initialize output table
+single_categorical_descriptives_all_farmers <- tibble()
+
+# Loop over each select_one variable
+for (i in single_mc) {
+  
+  if (i %in% names(Data)) {
+    
+    frequencies <- Data %>%
+      count(!!sym(i), name = "freq") %>%
+      rename(category = !!sym(i)) %>%
+      mutate(
+        n = nr_participants_raw,
+        `farmer type` = farmer_type,
+        variable = i,
+        `%` = round(freq / n * 100, 2),
+        category = as.character(category)
+      )
+    
+    single_categorical_descriptives_all_farmers <- single_categorical_descriptives_all_farmers %>%
+      bind_rows(frequencies) %>%
+      select(variable, `farmer type`, n, category, freq, `%`)
+  }
+}
+```
+
+### All farmers: multiple categorical descriptives
+
+```{r, include = FALSE}
+multiple_mc <- survey_questions %>%
+  filter(grepl("^select_multiple", type)) %>%  # Filter select_multiple questions
+  pull(name)  # Extract the variable names
+multiple_categorical_descriptives_all_farmers <- all_var
+
+for (j in multiple_mc) {
+  print(j)
+  
+  if (any(names(Data) %in% j)) {
+    frequencies <- Data %>%
+      select(all_of(j)) %>%
+      cSplit(j, "|") %>%
+      gather(key, value) %>%
+      select(-key) %>%
+      table() %>%
+      melt(c("category"), value.name = "freq") %>%
+      mutate(n = nr_participants_raw) %>%
+      mutate("variable" = j) %>%
+      left_join(all_var) %>%
+      mutate("%" = round(freq / n, 2) * 100) %>%
+      mutate(category = as.character(category))
+    
+    multiple_categorical_descriptives_all_farmers <- multiple_categorical_descriptives_all_farmers %>%
+      full_join(frequencies) %>%
+      select(variable, `farmer type`, n, category, freq, "%")
+  }
+}
+
+```
+
+### By gender: numerical descriptives
+
+```{r, include=FALSE}
+
+# Create gender summary (optional for joining later)
+gender_var <- Data %>% 
+  count(hh_farmer_gender, name = "n")
+
+# Get only numeric columns
+numeric_vars <- Data %>% select(where(is.numeric)) %>% names()
+
+# Mean
+mean_df <- Data %>%
+  group_by(hh_farmer_gender) %>%
+  summarise(across(all_of(numeric_vars), ~round(mean(.x, na.rm = TRUE), 2)), .groups = "drop") %>%
+  pivot_longer(-hh_farmer_gender, names_to = "variable", values_to = "mean")
+
+# SD
+sd_df <- Data %>%
+  group_by(hh_farmer_gender) %>%
+  summarise(across(all_of(numeric_vars), ~round(sd(.x, na.rm = TRUE), 2)), .groups = "drop") %>%
+  pivot_longer(-hh_farmer_gender, names_to = "variable", values_to = "sd")
+
+# Min
+min_df <- Data %>%
+  group_by(hh_farmer_gender) %>%
+  summarise(across(all_of(numeric_vars), ~round(min(.x, na.rm = TRUE), 2)), .groups = "drop") %>%
+  pivot_longer(-hh_farmer_gender, names_to = "variable", values_to = "min")
+
+# Max
+max_df <- Data %>%
+  group_by(hh_farmer_gender) %>%
+  summarise(across(all_of(numeric_vars), ~round(max(.x, na.rm = TRUE), 2)), .groups = "drop") %>%
+  pivot_longer(-hh_farmer_gender, names_to = "variable", values_to = "max")
+
+# Frequency (non-NA count)
+freq_df <- Data %>%
+  group_by(hh_farmer_gender) %>%
+  summarise(across(all_of(numeric_vars), ~sum(!is.na(.x))), .groups = "drop") %>%
+  pivot_longer(-hh_farmer_gender, names_to = "variable", values_to = "freq")
+
+# Merge all stats
+numerical_descriptives_by_gender <- mean_df %>%
+  left_join(sd_df, by = c("hh_farmer_gender", "variable")) %>%
+  left_join(min_df, by = c("hh_farmer_gender", "variable")) %>%
+  left_join(max_df, by = c("hh_farmer_gender", "variable")) %>%
+  left_join(freq_df, by = c("hh_farmer_gender", "variable")) %>%
+  left_join(gender_var, by = "hh_farmer_gender") %>%
+  select(variable, hh_farmer_gender, n, freq, mean, sd, min, max)
+
+```
+
+### By gender: single categorical descriptives
+
+```{r, include = FALSE}
+single_mc <- survey_questions %>%
+  filter(grepl("^select_one", type)) %>%  # Keep only single-choice questions
+  filter(name != "hh_farmer_gender") %>%  # Exclude gender variable
+  pull(name)  # Extract variable names
+
+single_categorical_descriptives_by_gender <- gender_var
+
+for(i in single_mc){
+  
+  if(any(names(Data) %in% i)){
+    
+    frequencies <- Data %>% 
+      select(hh_farmer_gender, all_of(i)) %>% 
+      table() %>% 
+      melt(c("hh_farmer_gender","category"), value.name="freq") %>%
+      mutate("variable" = i) %>%
+      left_join(gender_var) %>%
+      mutate("%" = round(freq/n,2)*100) %>%
+      mutate(category = as.character(category))
+    
+    single_categorical_descriptives_by_gender <- single_categorical_descriptives_by_gender %>% 
+      full_join(frequencies) %>%
+      select(variable, hh_farmer_gender, n, category, freq, "%")
+  }
+}
+```
+
+### By gender: multiple categorical descriptives
+
+```{r, include = FALSE}
+multiple_mc <- survey_questions %>%
+  filter(grepl("^select_multiple", type)) %>%  # Filter select_multiple questions
+  filter(name != "hh_farmer_gender") %>%  # Exclude gender variable
+  pull(name)  # Extract the variable names
+
+multiple_categorical_descriptives_by_gender <- gender_var
+
+for(j in multiple_mc){
+  print(j)
+  if(any(names(Data) %in% j)){
+    
+    frequencies <- Data %>% 
+      select(hh_farmer_gender, all_of(j)) %>% 
+      cSplit(j, "|") %>%
+      gather(key, value, -hh_farmer_gender) %>%
+      select(-key) %>% table() %>%
+      melt(c("hh_farmer_gender","category"), value.name="freq") %>%
+      mutate("variable" = j) %>%
+      left_join(gender_var) %>%
+      mutate("%" = round(freq/n,2)*100) %>%
+      mutate(category = as.character(category))
+    
+    multiple_categorical_descriptives_by_gender <- multiple_categorical_descriptives_by_gender %>% 
+      full_join(frequencies) %>%
+      select(variable, hh_farmer_gender, n, category, freq, "%")
+  }
+}
+```
+
+# Section 4: Final checking
+# Check completeness of the codebook
+
+All variables that are in the data should get a description in the codebook. That's why we check this and correct/ add where missing. We also check whether we have all the variables that are required for the data delivery.
+
+```{r, include = FALSE}
+
+# Adapt column names to expected structure
+survey_questions <- survey_questions %>%
+  dplyr::rename(
+    label = label,
+    name = name,
+    type = type
+  ) %>%
+  mutate(across(everything(), tolower)) %>%
+  select(label, name, type)
+# Prepare list of unmatched items if needed
+unmatched <- list()
+```
+
+# Remove repeated rows
+
+Remove repeated rows for household members and create columns for each household member (max household number is 15). Delete the unnecessary, only if household roster questions are asked, check also which ones are used.
+
+```{r, include = FALSE}
+if("uuid" %in% colnames(Data)){     
+    Data <- Data %>%
+      group_by(uuid) %>%
+      mutate(id = row_number())
+}
+#    for (nr in c(1:15)){
+      
+      ### ---- delete the unnecessary --- only if household roster questions are asked, check also which ones are used
+#      hh_focuscrop_nr <- paste0("hh_focuscrop_", nr)
+      
+#      Data <- Data %>%
+        #Delete the rows that do not apply
+#        mutate(
+#          !!sym(hh_focuscrop_nr) := ifelse(id == nr, hh_focuscrop_hrs, NA)) %>%
+        
+        #Delete the rows that do not apply
+#        fill(!!sym(hh_focuscrop_nr)) %>%
+#        fill(!!sym(hh_focuscrop_nr), .direction = "up") %>%
+        
+        #Delete the rows that do not apply
+#        mutate(
+#          !!sym(hh_focuscrop_nr) := ifelse(id >1 , NA, !!sym(hh_focuscrop_nr) ))
+      
+#    }
+#  }
+  
+
+```
+
+Let's check the variable names. First we need a dataframe with all variable names, and
+
+```{r, include = FALSE}
+#Make a dataframe listing all variables 
+variable <-ls(Data)
+data <- data.frame(variable)
+
+## ---- Variables ending with other  ---
+
+#Check if data variable is in codebook        
+data$compare <-data$variable  %in%  survey_questions$name 
+
+#if it's a "other variable", do not remove
+data <- data %>%
+  mutate(compare = ifelse(grepl('_other$',variable) & compare == FALSE , FALSE, TRUE)) %>%
+  filter(compare == FALSE) 
+
+# survey_questions <- bind_rows(survey_questions, data)
+# survey_questions <- survey_questions %>%
+#   arrange(variable)  %>%
+#   fill(question,
+#        section) %>%
+#   mutate(type = ifelse(!is.na(compare), "free text",type)) %>%
+#   
+#   mutate(variable_2 = str_remove(variable,'_other$')) %>%
+#   mutate(same = ifelse(variable_2== lag(variable_2), 1, 0)) %>%
+#   
+#   mutate(section = ifelse(!is.na(compare) & same == 0 , "unknown", section),
+#          question = ifelse(!is.na(compare) & same == 0 , "no question available", question)) %>%
+#   select(-compare, -variable_2, -same)
+```
+
+Check if it is a calculated variable or a variable from the question library.
+
+```{r}
+variable <-ls(Data)
+data <- data.frame(variable)
+data$compare <-data$variable  %in%  survey_questions$name 
+data <- data %>%
+  filter(compare == FALSE) %>%
+  select(-compare)
+
+data$compare <-data$variable  %in%  vars_transformed$variable 
+
+#check whether there is a match by checking out the "data" dataset MANUALLY
+#if a variable is not in the vars_transformed, update the excel with variable transformations
+```
+
+Append the survey questions with the calculated variables
+
+```{r}
+# #One changes are applied, append the codebook with information from the calculated variables (vars_transformed)
+# library(dplyr)
+# 
+# # Assuming "data" and "vars_transformed" are your dataframes
+# 
+# vars_calculated <- data$variable
+# 
+# calculated_variables <- vars_transformed %>%
+#   filter(variable %in% vars_calculated)
+# 
+# survey_questions <- survey_questions %>%
+#   bind_rows(calculated_variables)
+
+#One changes are applied, append the codebook with information from the calculated variables (vars_transformed)
+library(dplyr)
+
+# Assuming "data" and "vars_transformed" are your dataframes
+
+vars_calculated <- data$variable
+
+calculated_variables <- vars_transformed %>%
+  filter(variable %in% vars_calculated)
+
+# Delete columns and rename others in one step
+calculated_variables <- calculated_variables %>%
+  select(
+    -transformation, # Delete the 'transformation' column
+    -...4            # Delete the '...4' column
+  ) %>%
+  rename(
+    name = variable,     # Rename 'variable' to 'name'
+    label = description  # Rename 'description' to 'label'
+  )
+
+survey_questions <- survey_questions %>%
+  bind_rows(calculated_variables)
+
+
+```
+
+Check whether its a household demographics variable
+
+```{r}
+#Check whether already in the codebook
+variable <-ls(Data)
+data <- data.frame(variable)
+data$compare <- data$variable  %in%  survey_questions$name 
+# data <- data %>%
+#   filter(compare == FALSE) 
+
+```
+
+If indeed household demographics variable, append the codebook with that information
+
+```{r}
+data <- data %>%
+  filter(variable %in% household_demographics$variable) %>%
+  select(-compare)
+
+data <- merge(data, household_demographics, by.x = "variable")
+survey_questions <- bind_rows(survey_questions, data)
+```
+
+```{r, include = FALSE}
+# # --- Check household demographic questions ---
+#   hh_demo <- survey_questions %>%
+#     filter(str_detect(variable, 'hh_member_')) %>%
+#     arrange(variable) %>%
+#     fill(section, options)
+#   
+#   survey_questions <- survey_questions %>%
+#     filter(!str_detect(variable, 'hh_member_')) 
+#   survey_questions <- bind_rows(survey_questions, hh_demo)
+  
+```
+
+Check whether we have all the required variables for the portal
+
+```{r}
+# ---- dashboard variables ----
+  #All variables in delivered data into dataframe
+  
+  variable <-ls(Data)
+  data <- data.frame(variable)
+  
+  #Check if data variable is dashboard list     
+  vars_dashboard$compare <- vars_dashboard$latest_var %in% data$variable 
+  
+  data <- vars_dashboard %>%
+    filter(!is.na(latest_var)) %>%
+    filter(compare == FALSE) %>%
+    filter(is.na(note))
+  
+
+```
+
+Prepare final list of unmatched vars
+
+-   Check these by hand and ensure the variable names are aligned with
+
+1)  the question library
+
+2)  list of calculated variables
+
+3)  Household demographic variables.
+
+Ensure that all variables part of the cleaned data or dashboard variable names are described in the codebook.
+
+```{r, include = FALSE}
+variable <- ls(Data)
+data <- data.frame(variable) %>%
+  filter(
+    !variable %in% c(survey_questions$variable, vars_transformed$variable, question_library$variable)
+  )
+
+```
+
+# Add match - column
+
+When you are dealing with an endline case, we create a "match" column to indicate whether or not the farmer is recurring. PLEASE IGNORE THIS SECTION WHEN YOU ARE DEALING WITH A BASELINE CASE!
+
+In the 5200 Farmfit Github folder, you can find a folder named "PDC 2.0 sampling". Look here for the pi\_ file of the baseline and copy to the case folder. We load in this dataset to match with current farmers and see which ones are recurring.
+
+NB:If the pi\_ file is not available for baseline, use the raw data and generate it. here is and example
+
+```{r}
+# Data_baseline<-read_excel("DATA_ANALYSIS-baseline-Alluvial.xlsx")
+# Data_baseline <- Data_baseline %>%
+#   select(-contains("--option--")) %>%
+#   rename_all(funs(tolower)) %>%
+#   filter(`repeat no`==1) %>%
+#   select(identifier,
+#          name_of_farmer,
+#          mobile_number_farmer,
+#          contains("pi_"), -contains("ppi")) 
+# 
+# pi_info<- list("Personal information" = Data_baseline)
+# 
+# write.xlsx(pi_info, file="Pi_alluvial_baseline.xlsx")
+```
+
+First load in the baseline farmers and only keep the phone numbers.
+
+```{r}
+# baseline_farmers <- read_excel("pi_farmworks-baseline.xlsx")
+# # Only keep the phone number column for matching
+# baseline_farmers <- baseline_farmers %>% select(identifier, mobile_number_farmer)
+# 
+# # Retain only unique rows based on mobile_number_farmer
+# baseline_farmers <- baseline_farmers %>%
+#   distinct(mobile_number_farmer, .keep_all = TRUE)
+```
+
+Now we match the Data with these phone numbers.
+
+```{r}
+ # Data <- Data %>% left_join(baseline_farmers, by="mobile_number_farmer")
+```
+
+And add a column to indicate the match
+
+```{r}
+# # create now column to indicate whether there is a match or not
+# Data$cal_match <- ifelse(is.na(Data$identifier.y), FALSE, TRUE)
+# # Remove and rename columns that changed due to merging
+# Data <- Data %>% select(-identifier.y)
+# colnames(Data)[colnames(Data) == "identifier.x"] <- "identifier"
+```
+
+```{r}
+# Delete phone number from dataset for anonymisation
+Data <- Data %>%
+          select(
+      -c(farmer_phone_number)) 
+```
+
+# Combine the inputs for data delivery
+
+```{r}
+
+sets <- list(
+    "Codebook" = survey_questions,
+    "Cleaned Data" = Data,
+    "RawData (anonymised)" = Data_raw, 
+    "Cleaned Maize revenue" = maize_revenue,
+    "RawData Maize revenue" = maize_revenue_raw,
+    "Cleaned Onion revenue" = onion_revenue,
+    "RawData Onion revenue" = onion_revenue_raw,
+    "Cleaned Sunflower rev" = sunflower_revenue,
+    "RawData Sunflower rev" = sunflower_revenue_raw,
+    "Cleaned company loop Maize" = company_loop_maize,
+    "RawData company loop Maize" = company_loop_maize_raw,
+    "Cleaned company loop onion" = company_loop_onion,
+    "RawData company loop onion" = company_loop_onion_raw,
+    "Cleaned company loop sunfl" = company_loop_sunflower,
+    "RawData company loop sunfl" = company_loop_sunflower_raw,
+    "Cleaned company loop org" = company_loop_org,
+    "RawData company loop org" = company_loop_org_raw,
+    "Cleaned labour use" = labour_use,
+    "RawData labour use" = labour_use_raw,
+    "Cleaned input use" = input_use_costs,
+    "RawData input use" = input_use_costs_raw,
+    "Num. desc. all farmers" = numerical_descriptives_all_farmers,
+    "Cat. desc. single all farmers" = single_categorical_descriptives_all_farmers,
+    "Cat. desc. multi all farmers" = multiple_categorical_descriptives_all_farmers,
+    "Num. desc. by gender" = numerical_descriptives_by_gender,
+    "Cat. desc. single by gender" = single_categorical_descriptives_by_gender,
+    "Cat. desc. multi by gender" = multiple_categorical_descriptives_by_gender,
+    "Net promoter score" = NSP)
+  
+write.xlsx (sets, file = (paste0(data_delivery)))
+```
+
+# Get personal information sheet
+
+```{r, include = FALSE}
+# ## ---- Extract personal information ----
+# Data_raw <- read_excel(data_filename)
+# 
+# Data_raw <- Data_raw %>%
+#   select(-contains("--option--")) %>%
+#   rename_all(funs(tolower)) %>%
+#   filter(`repeat no`==1) %>%
+#   select(identifier,
+#          name_of_farmer,
+#          mobile_number_farmer,
+#          contains("pi_")) #-contains("ppi")) 
+# 
+# 
+# pi_info<- list("Personal information" = Data_raw)
+# 
+# write.xlsx(pi_info, file=pi_filename) #pi_filename was created in the beginning of the script
+
+
+```
+
+# Productivity check
+
+Create this file the first time you run the script to clean the data.
+
+```{r}
+#Productivity check
+
+
+productivity <- Data %>%
+    mutate(maize_product_min_sold = cal_maize_quant_prod_kg - cal_maize_quant_sold_kg,
+      onion_product_min_sold = cal_onion_quant_prod_kg - cal_onion_quant_sold_kg,
+      sunflower_product_min_sold = cal_sunflower_quant_prod_kg - cal_sunflower_quant_sold_kg) %>%
+
+    select(uuid,
+           submitter,
+           #`submission date`, ##MAKE SURE THIS VARIABLE IS NOT DELETED IN THE FIRST PIECE OF THE CODE.It should be deleted before sharing with IDH, but it should be kept when checking the productivity numbers.
+           starts_with("pi_location_cascade_level"), #include the applicable variable, this differs per case
+           f_unit_land,
+           f_size,
+           f_size_acre,
+           f_maize_crop_size,
+           f_maize_size_acre,
+           f_maize_size_hectare,
+           cal_maize_productivity_acre,
+           cal_maize_quant_prod_kg,
+           f_maize_measurement_sold,
+           cal_maize_quant_sold_kg,
+           maize_product_min_sold,
+           cal_maize_price,
+           cal_maize_price_kg,
+           f_onion_crop_size,
+           f_onion_size_acre,
+           f_onion_size_hectare,
+           cal_onion_productivity_acre,
+           cal_onion_quant_prod_kg,
+           cal_onion_quant_sold_kg,
+           onion_product_min_sold,
+           f_onion_measurement_sold,
+           cal_onion_price,
+           cal_onion_price_kg,
+           f_sunflower_crop_size,
+           f_sunflower_size_acre,
+           f_sunflower_size_hectare,
+           cal_sunflower_productivity_acre,
+           cal_sunflower_quant_prod_kg,
+           f_sunflower_measurement_sold,
+           cal_sunflower_quant_sold_kg,
+           sunflower_product_min_sold,
+           cal_sunflower_price,
+           cal_sunflower_price_kg,
+           
+           )
+           
+  
+write.xlsx (productivity, file = "productivity_check.xlsx", overwrite = TRUE)
+
+```
+
+
+```{r}
+#Maize
+productivity_maize_seaon <- maize_revenue %>%
+    mutate(maize_product_min_sold = cal_maize_quant_prod_kg - cal_maize_quant_sold_kg) %>%
+
+    select(`_submission__id`,
+#           submitter,
+           #`submission date`, ##MAKE SURE THIS VARIABLE IS NOT DELETED IN THE FIRST PIECE OF THE CODE.It should be deleted before sharing with IDH, but it should be kept when checking the productivity numbers.
+           starts_with("pi_location_cascade_level"), #include the applicable variable, this differs per case
+           f_maize_quant_prod,
+           f_maize_measurement_prod,
+           cal_maize_measurement_prod,
+           cal_maize_quant_prod_kg,
+           f_maize_quant_sold,
+           f_maize_measurement_sold,
+           cal_maize_measurement_sold,
+           cal_maize_quant_sold_kg,
+           maize_product_min_sold,
+           f_maize_price,
+           cal_maize_price_kg,
+           f_maize_quant_lost,
+           f_maize_measurement_lost
+           )
+  
+write.xlsx (productivity_maize_seaon, file = "maize_productivity_check_season.xlsx", overwrite = TRUE)
+```
+
+```{r}
+#Onion
+productivity_onion_seaon <- onion_revenue %>%
+    mutate(onion_product_min_sold = cal_onion_quant_prod_kg - cal_onion_quant_sold_kg) %>%
+
+    select(`_submission__id`,
+#           submitter,
+           #`submission date`, ##MAKE SURE THIS VARIABLE IS NOT DELETED IN THE FIRST PIECE OF THE CODE.It should be deleted before sharing with IDH, but it should be kept when checking the productivity numbers.
+           starts_with("pi_location_cascade_level"), #include the applicable variable, this differs per case
+           f_onion_quant_prod,
+           f_onion_measurement_prod,
+           cal_onion_measurement_prod,
+           cal_onion_quant_prod_kg,
+           f_onion_quant_sold,
+           f_onion_measurement_sold,
+           cal_onion_measurement_sold,
+           cal_onion_quant_sold_kg,
+           onion_product_min_sold,
+           f_onion_price,
+           cal_onion_price_kg,
+           f_onion_quant_lost,
+           f_onion_measurement_lost
+           )
+  
+write.xlsx (productivity_onion_seaon, file = "onion_productivity_check_season.xlsx", overwrite = TRUE)
+```
+
+```{r}
+#Sunflower
+productivity_sunflower_seaon <- sunflower_revenue %>%
+    mutate(sunflower_product_min_sold = cal_sunflower_quant_prod_kg - cal_sunflower_quant_sold_kg) %>%
+
+    select(`_submission__id`,
+#           submitter,
+           #`submission date`, ##MAKE SURE THIS VARIABLE IS NOT DELETED IN THE FIRST PIECE OF THE CODE.It should be deleted before sharing with IDH, but it should be kept when checking the productivity numbers.
+           starts_with("pi_location_cascade_level"), #include the applicable variable, this differs per case
+           f_sunflower_quant_prod,
+           f_sunflower_measurement_prod,
+           cal_sunflower_measurement_prod,
+           cal_sunflower_quant_prod_kg,
+           f_sunflower_quant_sold,
+           f_sunflower_measurement_sold,
+           cal_sunflower_measurement_sold,
+           cal_sunflower_quant_sold_kg,
+           sunflower_product_min_sold,
+           f_sunflower_price,
+           cal_sunflower_price_kg,
+           f_sunflower_quant_lost,
+           f_sunflower_measurement_lost
+           )
+  
+write.xlsx (productivity_sunflower_seaon, file = "sunflower_productivity_check_season.xlsx", overwrite = TRUE)
+
+```

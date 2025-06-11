@@ -18,20 +18,20 @@ library(tidyr)
 # Data
 
 ```{r}
-data <- read_xlsx("Data_IDH_Luna_and_GaDA_Ethiopia.xlsx")
-maize_repeat_revenue <- read_xlsx("Data_IDH_Luna_and_GaDA_Ethiopia.xlsx", sheet = "maize_repeat_revenue")
-soybean_repeat_revenue <- read_xlsx("Data_IDH_Luna_and_GaDA_Ethiopia.xlsx", sheet = "soybean_repeat_revenue")
-sunflower_repeat_revenue <- read_xlsx("Data_IDH_Luna_and_GaDA_Ethiopia.xlsx", sheet = "sunflower_repeat_revenue")
-onion_repeat_revenue <- read_xlsx("Data_IDH_Luna_and_GaDA_Ethiopia.xlsx", sheet = "onion_repeat_revenue")
+data <- read_xlsx("Data_IDH_Kunifira_and_OACF_Ethiopia.xlsx")
+maize_repeat_revenue <- read_xlsx("Data_IDH_Kunifira_and_OACF_Ethiopia.xlsx", sheet = "maize_repeat_revenue")
+soybean_repeat_revenue <- read_xlsx("Data_IDH_Kunifira_and_OACF_Ethiopia.xlsx", sheet = "soybean_repeat_revenue")
+sunflower_repeat_revenue <- read_xlsx("Data_IDH_Kunifira_and_OACF_Ethiopia.xlsx", sheet = "sunflower_repeat_revenue")
+onion_repeat_revenue <- read_xlsx("Data_IDH_Kunifira_and_OACF_Ethiopia.xlsx", sheet = "onion_repeat_revenue")
 
-input_use_costs_repeat <- read_xlsx("Data_IDH_Luna_and_GaDA_Ethiopia.xlsx", sheet = "input_use_costs_repeat")
-labour_use_repeat <- read_xlsx("Data_IDH_Luna_and_GaDA_Ethiopia.xlsx", sheet = "labour_use_repeat")
+input_use_costs_repeat <- read_xlsx("Data_IDH_Kunifira_and_OACF_Ethiopia.xlsx", sheet = "input_use_costs_repeat")
+labour_use_repeat <- read_xlsx("Data_IDH_Kunifira_and_OACF_Ethiopia.xlsx", sheet = "labour_use_repeat")
 
-company_loop_maize <- read_xlsx("Data_IDH_Luna_and_GaDA_Ethiopia.xlsx", sheet = "maize_company_loop")
-company_loop_soybean <- read_xlsx("Data_IDH_Luna_and_GaDA_Ethiopia.xlsx", sheet = "company_loop_soybean")
-company_loop_sunflower <- read_xlsx("Data_IDH_Luna_and_GaDA_Ethiopia.xlsx", sheet = "company_loop_sunflower")
-company_loop_onion <- read_xlsx("Data_IDH_Luna_and_GaDA_Ethiopia.xlsx", sheet = "company_loop_onion")
-company_loop_organization <- read_xlsx("Data_IDH_Luna_and_GaDA_Ethiopia.xlsx", sheet = "company_loop_organization")
+company_loop_maize <- read_xlsx("Data_IDH_Kunifira_and_OACF_Ethiopia.xlsx", sheet = "maize_company_loop")
+company_loop_soybean <- read_xlsx("Data_IDH_Kunifira_and_OACF_Ethiopia.xlsx", sheet = "company_loop_soybean")
+company_loop_sunflower <- read_xlsx("Data_IDH_Kunifira_and_OACF_Ethiopia.xlsx", sheet = "company_loop_sunflower")
+company_loop_onion <- read_xlsx("Data_IDH_Kunifira_and_OACF_Ethiopia.xlsx", sheet = "company_loop_onion")
+company_loop_organization <- read_xlsx("Data_IDH_Kunifira_and_OACF_Ethiopia.xlsx", sheet = "company_loop_organization")
 
 
 ```
@@ -709,7 +709,7 @@ final <- final %>%
 
 ```{r}
 
-write_xlsx(final, "Luna and Gada data quality check.xlsx")
+write_xlsx(final, "Kunifira and Oacf data quality check.xlsx")
 
 ```
 
